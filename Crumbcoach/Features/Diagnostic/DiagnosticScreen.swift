@@ -1,29 +1,39 @@
 import SwiftUI
 
-// AI Crumb Diagnostic screen — 4 states: idle, analyzing, result, feedback.
-// AI is a stub here (timed transition); the contextual prompt + region
-// annotations + feedback loop UX are real.
+// Crumb comparison screen (Stage 24a). Real, on-device Vision feature-print
+// match against the user's journal photos. Three states:
+//   - idle:      no photo yet, show photo-guide tips
+//   - analyzing: Vision computing prints for the current photo + journal
+//   - result:    closest journal match + similarity %
+//
+// We deliberately *do not* claim to diagnose underproofing, predict bake
+// outcomes, or train a model from feedback. We compare image features the
+// user has already rated; everything else is the user's judgement.
+// Stage 24 (the full vision-language model) is the long-term answer.
 
 struct DiagnosticScreen: View {
     var state: AppState
 
     enum DiagState { case idle, analyzing, result }
-    enum Verdict   { case useful, notUseful, wrong }
 
-    @State private var diagState: DiagState = .result   // start in the result view for showcase
-    @State private var verdict: Verdict? = nil
-    @State private var bakeChoice: String = "current"
+    @State private var diagState: DiagState = .idle
     @State private var currentPhoto: String? = nil       // disk filename or bundled asset
     @State private var photoPickerOpen = false
+    /// The closest journal entry by Vision feature-print distance, and the
+    /// 0–100 similarity score derived from that distance. Nil when the
+    /// journal has no comparable photos yet.
+    @State private var match: MatchResult? = nil
+
+    struct MatchResult {
+        let entry: JournalEntry
+        let similarity: Int
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
-            // LEFT: photo + context
+            // LEFT: photo
             VStack(spacing: 20) {
                 photoPanel
-                if diagState == .result {
-                    contextBar
-                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
 
@@ -62,14 +72,7 @@ struct DiagnosticScreen: View {
 
     private var photoPanel: some View {
         ZStack {
-            // The photo and the annotation overlay both fill this 4:3 ZStack,
-            // so SVG-style fractional positions land in the right pixels.
-            BreadPhoto(assetName: currentPhoto ?? "crumb_dense", kind: .crumb, height: 480)
-
-            if diagState == .result {
-                AnnotationOverlay()
-                bottomStrip
-            }
+            BreadPhoto(assetName: currentPhoto, kind: .crumb, height: 480)
 
             VStack {
                 HStack {
@@ -84,6 +87,21 @@ struct DiagnosticScreen: View {
                 }
                 .padding(12)
                 Spacer()
+
+                // Privacy reassurance — Vision feature-print computation
+                // is fully on-device. We surface this honestly instead of
+                // the prior fake "model version" badge.
+                if diagState == .result {
+                    HStack(spacing: 6) {
+                        Circle().fill(Color(hex: 0x86EFAC)).frame(width: 6, height: 6)
+                        Text("On-device · photo never left this iPad")
+                            .font(Typography.ui(11)).foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.7), in: Capsule())
+                    .padding(12)
+                }
             }
 
             if diagState == .idle { idleOverlay }
@@ -99,7 +117,7 @@ struct DiagnosticScreen: View {
 
     private var topLabel: some View {
         let timestamp = CCFormat.clockTime.string(from: Date())
-        return Text("Country Sourdough · Crumb shot · \(timestamp)")
+        return Text("Crumb shot · \(timestamp)")
             .font(Typography.ui(12, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
@@ -154,93 +172,6 @@ struct DiagnosticScreen: View {
         }
     }
 
-    private var bottomStrip: some View {
-        VStack {
-            Spacer()
-            HStack(alignment: .bottom) {
-                HStack(spacing: 18) {
-                    HStack(spacing: 6) {
-                        Kicker("RUN", color: .white.opacity(0.55), size: 10)
-                        Text("on-device · 1.8 s")
-                            .font(Typography.ui(11)).foregroundStyle(.white)
-                    }
-                    Rectangle().fill(.white.opacity(0.35)).frame(width: 1, height: 10)
-                    HStack(spacing: 6) {
-                        Kicker("MODEL", color: .white.opacity(0.55), size: 10)
-                        Text("CC-vlm v1.4 int4")
-                            .font(Typography.ui(11)).foregroundStyle(.white)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                Spacer()
-
-                HStack(spacing: 6) {
-                    Circle().fill(Color(hex: 0x86EFAC)).frame(width: 6, height: 6)
-                    Text("Private · photo never left this iPad")
-                        .font(Typography.ui(11)).foregroundStyle(.white)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.7), in: Capsule())
-            }
-            .padding(12)
-        }
-    }
-
-    // MARK: Context bar
-
-    private var contextBar: some View {
-        SurfaceCard(padding: EdgeInsets()) {
-            VStack(spacing: 0) {
-                HStack(spacing: 18) {
-                    Kicker("Context fed to model")
-                    HStack(spacing: 18) {
-                        contextDatum("75%", "hydration")
-                        contextSeparator
-                        contextDatum("4h 15m", "bulk @ 22°C")
-                        contextSeparator
-                        contextDatum("−2h", "levain peaked")
-                        contextSeparator
-                        contextDatum("12h", "cold retard")
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
-
-                HStack(spacing: 8) {
-                    Kicker("Comparing to")
-                    ForEach([
-                        ("current", "This recipe · last 6 bakes"),
-                        ("best",    "Your 5-star bakes only"),
-                        ("none",    "Recipe target only")
-                    ], id: \.0) { id, label in
-                        TagPill(label: label, active: id == bakeChoice) { bakeChoice = id }
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .background(Theme.slate50)
-                .overlay(alignment: .top) { Rectangle().fill(Theme.border1).frame(height: 1) }
-            }
-        }
-    }
-
-    private func contextDatum(_ value: String, _ label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(value).font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate900)
-            Text(label).font(Typography.ui(12)).foregroundStyle(Theme.slate700)
-        }
-    }
-
-    private var contextSeparator: some View {
-        Text("·").font(Typography.ui(12)).foregroundStyle(Theme.slate300)
-    }
-
     // MARK: Side panels
 
     private var idleSide: some View {
@@ -250,7 +181,7 @@ struct DiagnosticScreen: View {
                 Text("Sliced loaf, flat on the cutting board.")
                     .font(Typography.display(22, weight: .medium))
                     .foregroundStyle(Theme.slate900)
-                Text("Overhead light, neutral background. The model needs to see cell distribution from base to top crust.")
+                Text("Overhead light, neutral background. We'll compare your shot against your journal's photos and surface the closest match.")
                     .font(Typography.ui(13)).foregroundStyle(Theme.slate600)
                 SoftDivider()
                 VStack(alignment: .leading, spacing: 10) {
@@ -270,171 +201,195 @@ struct DiagnosticScreen: View {
     private var analyzingSide: some View {
         SurfaceCard {
             VStack(alignment: .leading, spacing: 18) {
-                Kicker("Running diagnostic")
-                Text("Analyzing crumb structure…")
+                Kicker("Comparing")
+                Text("Finding the closest journal match…")
                     .font(Typography.display(22, weight: .medium))
                     .foregroundStyle(Theme.slate900)
-                let steps: [(String, Bool)] = [
-                    ("Extracting crumb features", true),
-                    ("Computing cell density", true),
-                    ("Comparing to your bake history", false),
-                    ("Drafting actionable insight", false),
+                let steps = [
+                    "Computing this photo's feature print",
+                    "Loading your journal's photos",
+                    "Comparing against past bakes",
                 ]
-                ForEach(Array(steps.enumerated()), id: \.offset) { _, item in
+                ForEach(steps, id: \.self) { step in
                     HStack(spacing: 12) {
                         ZStack {
-                            Circle().fill(item.1 ? Theme.success50 : Theme.slate100)
-                                .frame(width: 22, height: 22)
-                            if item.1 {
-                                CCIconView(icon: .check, size: 13, color: Theme.success600)
-                            } else {
-                                Circle().fill(Theme.slate400).frame(width: 6, height: 6)
-                            }
+                            Circle().fill(Theme.slate100).frame(width: 22, height: 22)
+                            Circle().fill(Theme.slate400).frame(width: 6, height: 6)
                         }
-                        Text(item.0).font(Typography.ui(13))
-                            .foregroundStyle(item.1 ? Theme.slate900 : Theme.slate500)
+                        Text(step).font(Typography.ui(13))
+                            .foregroundStyle(Theme.slate700)
                     }
                 }
             }
         }
     }
 
+    @ViewBuilder
     private var resultSide: some View {
-        VStack(spacing: 16) {
-            // Headline diagnosis
-            SurfaceCard(padding: EdgeInsets()) {
-                VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Kicker("Diagnosis", color: Theme.warm700)
-                            Spacer()
-                            StatusPill(kind: .warn, text: "87% confidence")
-                        }
-                        Text("Underproofed bulk fermentation.")
-                            .font(Typography.display(26, weight: .medium))
-                            .foregroundStyle(Theme.slate900)
-                        Text("Crumb shows a tight base with tunneling under the top crust. Compared to your last 5-star Country Sourdough (bake #23), structure is ~20% denser in the bottom third.")
-                            .font(Typography.ui(13))
-                            .foregroundStyle(Theme.slate600)
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 20)
-                    .background(
-                        LinearGradient(colors: [Theme.warm50, .white],
-                                        startPoint: .top, endPoint: .bottom)
-                    )
-                    .overlay(alignment: .bottom) { Rectangle().fill(Theme.border1).frame(height: 1) }
+        if let match {
+            matchResultCard(match)
+            honestyCard
+        } else {
+            emptyJournalCard
+        }
+    }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Kicker("What I'm seeing")
-                            .padding(.bottom, 4)
-                        ForEach([
-                            (1, Color(hex: 0xFBBF24), "Dense base", "Cells 40% smaller than your target"),
-                            (2, Color(hex: 0xF87171), "Tunneling under crust", "Classic underproof tell"),
-                            (3, Color(hex: 0x10B981), "Even mid-crumb", "This part is on target"),
-                        ], id: \.0) { n, c, t, d in
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    Circle().fill(c).frame(width: 22, height: 22)
-                                    Text("\(n)")
-                                        .font(Typography.ui(11, weight: .bold))
-                                        .foregroundStyle(.white)
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(t).font(Typography.ui(13, weight: .medium)).foregroundStyle(Theme.slate900)
-                                    Text(d).font(Typography.ui(11.5)).foregroundStyle(Theme.slate500)
-                                }
-                                Spacer()
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 16)
-                }
-            }
-
-            // Likely cause + Next time
-            SurfaceCard(padding: EdgeInsets()) {
-                VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Kicker("Likely cause")
-                        Text("Bulk was 4h 15m at 22°C. Your past good bakes at this temperature ran 5h–5h 30m. Volume increase looked like 30% — your 5-star average is closer to 50%.")
-                            .font(Typography.ui(13.5))
-                            .foregroundStyle(Theme.slate700)
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 18)
-                    SoftDivider()
-                    VStack(alignment: .leading, spacing: 8) {
-                        Kicker("Next time", color: Theme.primary)
-                        Text("Either bulk 45 min longer, or warm kitchen to 24°C and hold bulk at ~4h 30m. Aim for 50% volume rise, not 30%.")
-                            .font(Typography.ui(13.5)).foregroundStyle(Theme.slate700)
-                        Button(action: { state.goTo(.scheduler) }) {
-                            Text("Adjust next bake schedule")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .ccPrimary()
-                        .padding(.top, 6)
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 18)
-                }
-            }
-
-            // Feedback
-            SurfaceCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Kicker("Was this useful?")
-                            Text("Your feedback fine-tunes the on-device model.")
-                                .font(Typography.ui(11.5)).foregroundStyle(Theme.slate500)
-                        }
+    /// Closest journal entry by Vision feature-print distance + a
+    /// similarity percentage + a tap-into-the-journal CTA. The recipe
+    /// title comes from the user's library when the entry's recipeId is
+    /// still present; otherwise we fall back to the id itself.
+    private func matchResultCard(_ match: MatchResult) -> some View {
+        let entry = match.entry
+        let recipe = state.recipe(entry.recipeId)
+        let title = recipe?.title ?? entry.recipeId
+        return SurfaceCard(padding: EdgeInsets()) {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Kicker("Closest match", color: Theme.primary)
                         Spacer()
-                        HStack(spacing: 6) {
-                            FeedbackButton(icon: .thumbsUp, active: verdict == .useful, kind: .good) {
-                                verdict = .useful
-                            }
-                            FeedbackButton(icon: .thumbsDown, active: verdict == .notUseful, kind: .bad) {
-                                verdict = .notUseful
-                            }
-                            Button("Not what I'm seeing") {
-                                verdict = .wrong
-                            }
-                            .font(Typography.ui(12, weight: .medium))
-                            .foregroundStyle(Theme.slate700)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(verdict == .wrong ? Theme.slate100 : .white,
-                                         in: Capsule())
-                            .overlay(Capsule().stroke(Theme.border1, lineWidth: 1))
-                            .buttonStyle(.plain)
-                        }
+                        StatusPill(kind: similarityPillKind(match.similarity),
+                                    text: "\(match.similarity)% similar")
                     }
-                    if verdict == .useful {
-                        Text("✓ Thanks. Logged to your local feedback set (87 samples).")
-                            .font(Typography.ui(12))
-                            .foregroundStyle(Theme.success700)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Theme.success50, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Text(title)
+                        .font(Typography.display(24, weight: .medium))
+                        .foregroundStyle(Theme.slate900)
+                    HStack(spacing: 8) {
+                        StarRating(rating: entry.rating, size: 14)
+                        Text("·").foregroundStyle(Theme.slate400)
+                        Text(entry.dateDisplay)
+                            .font(Typography.ui(12)).foregroundStyle(Theme.slate600)
                     }
                 }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 20)
+                .background(
+                    LinearGradient(colors: [Theme.primaryTint, .white],
+                                    startPoint: .top, endPoint: .bottom)
+                )
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.border1).frame(height: 1) }
+
+                HStack(alignment: .top, spacing: 12) {
+                    if let asset = entry.photoAsset {
+                        BreadPhoto(assetName: asset, kind: .crumb, height: 80)
+                            .frame(width: 110, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !entry.note.isEmpty {
+                            Text(entry.note)
+                                .font(Typography.ui(12.5))
+                                .foregroundStyle(Theme.slate700)
+                                .lineLimit(4)
+                        } else {
+                            Text("No notes from this bake.")
+                                .font(Typography.ui(12.5))
+                                .foregroundStyle(Theme.slate500)
+                        }
+                        Button {
+                            state.goTo(.journal)
+                        } label: {
+                            Label("View in journal", systemImage: "graph")
+                        }
+                        .ccGhost(compact: true)
+                        .padding(.top, 4)
+                    }
+                }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 16)
             }
+        }
+    }
+
+    /// The honest disclosure card. The whole point of Stage 24a is that
+    /// we're NOT claiming AI diagnosis — we're comparing image features.
+    /// Surfacing this once on the result page is the difference between
+    /// "useful tool" and "lies to the user."
+    private var honestyCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Kicker("How this works", color: Theme.slate500)
+                Text("Apple Vision computes a feature print for your crumb shot and compares it to your journal photos. Higher percentages mean visually closer — they don't predict how this bake will rate. Your judgement still calls it.")
+                    .font(Typography.ui(12.5))
+                    .foregroundStyle(Theme.slate600)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var emptyJournalCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Kicker("No comparisons yet")
+                Text("Log a few bakes with photos first.")
+                    .font(Typography.display(20, weight: .medium))
+                    .foregroundStyle(Theme.slate900)
+                Text("The diagnostic compares your crumb shots against your past bakes' photos. With nothing in your journal yet, there's nothing to compare to — finish a bake (Active bake → Complete bake) and the matcher comes alive.")
+                    .font(Typography.ui(13))
+                    .foregroundStyle(Theme.slate600)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    state.goTo(.journal)
+                } label: {
+                    Label("Open Journal", systemImage: "graph")
+                }
+                .ccSecondary(compact: true)
+            }
+        }
+    }
+
+    private func similarityPillKind(_ pct: Int) -> PillKind {
+        switch pct {
+        case 70...: return .good
+        case 40...: return .info
+        default:    return .neutral
         }
     }
 
     private func reset() {
         diagState = .idle
-        verdict = nil
+        match = nil
         currentPhoto = nil
     }
 
+    /// Real on-device comparison using `VisionFeaturePrint`. Computes the
+    /// current photo's embedding, computes embeddings for every journal
+    /// entry's photo, finds the nearest neighbour by feature distance,
+    /// and surfaces the closest match. No model bundled; everything runs
+    /// through Apple's `VNGenerateImageFeaturePrintRequest`.
     private func startAnalysis() {
         diagState = .analyzing
-        Task {
-            try? await Task.sleep(nanoseconds: 2_400_000_000)
-            await MainActor.run { diagState = .result }
+        match = nil
+        let photoName = currentPhoto
+        let journal = state.journal
+        let persistence = state.persistence
+        Task.detached(priority: .userInitiated) {
+            guard let filename = photoName,
+                  let currentImage = persistence.loadPhoto(named: filename),
+                  let currentPrint = await VisionFeaturePrint.compute(for: currentImage) else {
+                await MainActor.run { self.diagState = .idle }
+                return
+            }
+            var best: (JournalEntry, Float)?
+            for entry in journal {
+                guard let asset = entry.photoAsset,
+                      let img = persistence.loadPhoto(named: asset),
+                      let print = await VisionFeaturePrint.compute(for: img) else {
+                    continue
+                }
+                let d = VisionFeaturePrint.distance(currentPrint, print)
+                if best == nil || d < best!.1 { best = (entry, d) }
+            }
+            let result: MatchResult? = best.map { entry, distance in
+                MatchResult(
+                    entry: entry,
+                    similarity: VisionFeaturePrint.similarityPercent(distance: distance)
+                )
+            }
+            await MainActor.run {
+                self.match = result
+                self.diagState = .result
+            }
         }
     }
 }
@@ -450,83 +405,6 @@ private struct BlurChip: ButtonStyle {
             .padding(.vertical, 6)
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(Capsule().fill(Color.black.opacity(0.4)).blendMode(.multiply))
-    }
-}
-
-private struct AnnotationOverlay: View {
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            // Marker sizes scale with the photo width so circles stay visually
-            // consistent at any iPad size.
-            let markerSize = max(20, w * 0.045)
-
-            ZStack {
-                // Region 1 — tight base
-                Ellipse().stroke(Color(hex: 0xFDE68A),
-                                  style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                    .frame(width: w * 0.55, height: h * 0.14)
-                    .position(x: w * 0.45, y: h * 0.78)
-                Circle().fill(Color(hex: 0xFBBF24)).frame(width: markerSize, height: markerSize)
-                    .overlay(Text("1").font(Typography.ui(11, weight: .bold)).foregroundStyle(Color(hex: 0x1F2937)))
-                    .position(x: w * 0.15, y: h * 0.80)
-
-                // Region 2 — tunneling
-                Ellipse().stroke(Color(hex: 0xFCA5A5),
-                                  style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                    .frame(width: w * 0.27, height: h * 0.13)
-                    .position(x: w * 0.60, y: h * 0.26)
-                Circle().fill(Color(hex: 0xF87171)).frame(width: markerSize, height: markerSize)
-                    .overlay(Text("2").font(Typography.ui(11, weight: .bold)).foregroundStyle(.white))
-                    .position(x: w * 0.74, y: h * 0.20)
-
-                // Region 3 — uneven holes mid
-                Circle().stroke(Color(hex: 0xA7F3D0),
-                                 style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                    .frame(width: w * 0.17, height: w * 0.17)
-                    .position(x: w * 0.34, y: h * 0.50)
-                Circle().fill(Color(hex: 0x10B981)).frame(width: markerSize, height: markerSize)
-                    .overlay(Text("3").font(Typography.ui(11, weight: .bold)).foregroundStyle(.white))
-                    .position(x: w * 0.43, y: h * 0.41)
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct FeedbackButton: View {
-    let icon: CCIcon
-    let active: Bool
-    let kind: PillKind
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            CCIconView(icon: icon, size: 16,
-                        color: active ? kind.fg : Theme.slate600)
-                .padding(8)
-                .background(active ? kind.bg : .white,
-                             in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Theme.border1, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityAddTraits(active ? [.isSelected] : [])
-    }
-
-    /// Single-word label derived from the icon — there's no surrounding text
-    /// per button, so the icon's meaning is the label.
-    private var accessibilityLabel: String {
-        switch icon {
-        case .thumbsUp:   return "Useful"
-        case .thumbsDown: return "Not useful"
-        default:          return "Feedback"
-        }
     }
 }
 

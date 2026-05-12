@@ -2544,6 +2544,98 @@ in the app (2–4 GB). Replaces the stubbed
 This is a separate ML project, not an app-engineering task. Spec §4.5
 and §10.
 
+### Stage 24a — Honest crumb comparison (shipping intermediate)
+
+**Done.** Apple Vision's `VNGenerateImageFeaturePrintRequest` runs
+entirely on-device; comparing the user's crumb shot against their
+own journal photos is real, defensible, and doesn't require any
+bundled model. We stopped pretending to diagnose underproofing.
+
+What landed:
+
+- `Crumbcoach/Shared/VisionFeaturePrint.swift` — async wrapper
+  around `VNGenerateImageFeaturePrintRequest`:
+  - `compute(for: UIImage) async -> VNFeaturePrintObservation?` runs
+    on a detached `.userInitiated` Task. Vision picks the Neural
+    Engine when available; ~30–80ms per image on Apple Silicon.
+  - `distance(_:_:)` calls `computeDistance(_:to:)` and returns
+    `.greatestFiniteMagnitude` on error so callers can branch on
+    "no comparison."
+  - `similarityPercent(distance:)` linearly maps the typical
+    `[0, 2]` distance range to `0–100%`. Honest mapping that the
+    UI labels as "similar" (a comparison heuristic), not
+    "confidence" (which would imply diagnosis).
+- `DiagnosticScreen.startAnalysis()` no longer sleeps for 2.4 s.
+  It now:
+  1. Loads the current photo via the same `state.persistence.loadPhoto`
+     path the rest of the app uses.
+  2. Computes the current photo's feature print.
+  3. Iterates `state.journal`, computing each entry's photo print
+     (skipping entries with no photo or where the photo file
+     doesn't exist locally — typical for the bundled-asset sample
+     journal).
+  4. Picks the smallest-distance match and surfaces it as
+     `MatchResult { entry, similarity }`.
+- Initial state changed from `.result` (the old showcase) to
+  `.idle`. New users see the photo-guide tips instead of a fake
+  diagnosis.
+- Result panel rewritten: closest journal entry's recipe title +
+  star rating + date display + similarity pill, with a thumbnail
+  of the matched bake and the entry's own note. A "View in
+  journal" button routes to the journal screen.
+- An empty-state card surfaces when the journal has no
+  comparable photos yet ("Log a few bakes with photos first.")
+  with an "Open Journal" CTA.
+- A small honesty card sits below the match: "Apple Vision
+  computes a feature print for your crumb shot and compares it to
+  your journal photos. Higher percentages mean visually closer —
+  they don't predict how this bake will rate."
+
+What got deleted:
+
+- `AnnotationOverlay` — the colored dashed ellipses + numbered
+  markers positioned at static fractional coordinates. The
+  markers didn't track any feature in the photo; they were
+  decoration that read as analysis.
+- `bottomStrip` — "RUN: on-device · 1.8 s | MODEL: CC-vlm v1.4
+  int4" badges over the photo. The on-device + private claim is
+  real and now lives in a small badge on the photo panel; the
+  fake model version is gone.
+- `contextBar` — "Context fed to model" with hardcoded "75%
+  hydration · 4h 15m bulk @ 22°C · −2h levain peaked · 12h cold
+  retard." There was no model and no context flow. The
+  "Comparing to" pills (`bakeChoice`) were also dead state.
+- `FeedbackButton` + the "Was this useful? Your feedback fine-
+  tunes the on-device model" copy. There is no model. The
+  feedback wasn't training anything; surfacing the prompt was
+  the dishonest part.
+- The hardcoded "Underproofed bulk fermentation. 87% confidence."
+  diagnosis and its accompanying "What I'm seeing" / "Likely
+  cause" / "Next time" paragraphs.
+
+Known gaps and trade-offs:
+
+- Comparison is "visually similar," NOT "outcome predictor." A
+  crumb shot of an underbaked loaf might still match a well-rated
+  bake's photo if they look alike — Vision doesn't know about
+  bake outcomes. We surface ratings as context, not as the
+  prediction.
+- The feature print pipeline runs every Diagnose tap; we don't
+  cache prints. For journals up to ~50 entries, total time is a
+  couple of seconds. Beyond that, caching prints alongside the
+  journal photo file (or in the entry itself as `Data?`) is the
+  next step.
+- Bundled-asset photos in the seed journal don't load via
+  `persistence.loadPhoto(named:)` (that only reads the photos
+  directory). They're skipped — only user-taken photos
+  participate, which is the right behavior since the user
+  has only rated *their* bakes.
+- Stage 24 (the full vision-language model: train, quantize,
+  bundle 2–4 GB) remains the long-term answer. Stage 24a is the
+  honest stepping stone — when the VLM is ready, it replaces
+  `startAnalysis` while the surrounding UI (match card, honesty
+  card, journal thumbnail) stays intact.
+
 ### Stage 25 — Sourdough Sidekick BLE integration
 
 Requires partnership with FirstBuild for the API. Until then this is
@@ -2855,7 +2947,8 @@ visibility.)
 | Stage | Status   | Owner | Notes |
 |-------|----------|-------|-------|
 | 23    | not started |    | Cloud Pro subscription tier (StoreKit 2). |
-| 24    | not started |    | On-device AI crumb diagnostic (Core ML VLM). |
+| 24    | future   |       | On-device AI crumb diagnostic (Core ML VLM) — long-term replacement for 24a. |
+| 24a   | done     |       | Honest crumb comparison via Apple Vision feature prints. See "Stage 24a — completion notes". |
 | 25    | not started |    | Sourdough Sidekick BLE integration (gated on partnership). |
 
 ### Phase E — content & growth
