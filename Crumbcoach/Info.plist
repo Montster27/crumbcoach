@@ -20,6 +20,12 @@
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Photograph your crumb, dough, and starter so CrumbCoach can analyze and log them.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach photos from your library to bakes and diagnostics.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>Remind you when each bake step is due — folds, shaping, baking.</string>
 	<key>UIDeviceFamily</key>
 	<array>
 		<integer>2</integer>

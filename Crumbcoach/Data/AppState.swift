@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UserNotifications
 
 // App-wide observable state. Loads from / writes to PersistenceController on
 // every meaningful mutation, debounced 1 second so slider drags don't thrash
@@ -15,11 +16,21 @@ final class AppState {
     enum Screen: Hashable {
         case home, library, recipe(id: String)
         case activeBake, scheduler, starter
-        case diagnose, journal
+        case diagnose, journal, settings
     }
 
     var screen: Screen = .home
     var selectedRecipeId: String
+
+    /// Filename of a photo the user just captured on another screen, to be
+    /// consumed by the diagnostic screen on appear. Not persisted — purely a
+    /// short-lived hand-off slot.
+    var pendingDiagnosticPhoto: String? = nil
+
+    /// Cached system permission state for local notifications. Refreshed on
+    /// app foreground and after we prompt. Not persisted — the system is the
+    /// source of truth.
+    var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
 
     // MARK: Persistent data
     var recipes: [Recipe]
@@ -32,6 +43,9 @@ final class AppState {
     var kitchenHumidityPct: Int
     var ovenStatus: String
     var userName: String
+    /// True once the user has cleared onboarding (entered their name). The
+    /// CrumbcoachApp scene presents `OnboardingScreen` until this flips true.
+    var hasOnboarded: Bool
 
     // MARK: Derived
     var insights: [Insight] {
@@ -41,7 +55,7 @@ final class AppState {
 
     // MARK: Persistence
 
-    private let persistence: PersistenceController
+    let persistence: PersistenceController
     private var saveTask: Task<Void, Never>?
 
     init(persistence: PersistenceController = .shared) {
@@ -57,16 +71,26 @@ final class AppState {
             self.ovenStatus         = loaded.ovenStatus
             self.userName           = loaded.userName
             self.selectedRecipeId   = loaded.selectedRecipeId
+            // Grandfather pre-Stage-5 saves: if the user already had a name on
+            // disk, treat them as onboarded even if the flag wasn't persisted.
+            self.hasOnboarded       = loaded.hasOnboarded
+                || !loaded.userName.trimmingCharacters(in: .whitespaces).isEmpty
         } else {
+            // Fresh install: seed the curated recipe library + a starter so
+            // the library/starter screens have something to explore, but DO
+            // NOT pretend the user has an in-progress bake or a bake history.
+            // The user is sent through onboarding to pick a name before the
+            // main UI shows.
             self.recipes            = SampleRecipes.all
             self.starters           = SampleStarters.all
-            self.journal            = SampleJournal.all
-            self.activeBake         = AppState.makeSampleActiveBake()
-            self.kitchenTempC       = 22.1
-            self.kitchenHumidityPct = 54
-            self.ovenStatus         = "Off · preheat 7:30 AM"
-            self.userName           = "Marisol"
-            self.selectedRecipeId   = "hokkaido"
+            self.journal            = []
+            self.activeBake         = nil
+            self.kitchenTempC       = 22.0
+            self.kitchenHumidityPct = 50
+            self.ovenStatus         = "Off"
+            self.userName           = ""
+            self.selectedRecipeId   = SampleRecipes.all.first?.id ?? ""
+            self.hasOnboarded       = false
             saveSoon()
         }
     }
@@ -89,7 +113,8 @@ final class AppState {
                 kitchenHumidityPct: self.kitchenHumidityPct,
                 ovenStatus: self.ovenStatus,
                 userName: self.userName,
-                selectedRecipeId: self.selectedRecipeId
+                selectedRecipeId: self.selectedRecipeId,
+                hasOnboarded: self.hasOnboarded
             )
             self.persistence.save(snapshot)
         }
@@ -108,13 +133,16 @@ final class AppState {
             kitchenHumidityPct: kitchenHumidityPct,
             ovenStatus: ovenStatus,
             userName: userName,
-            selectedRecipeId: selectedRecipeId
+            selectedRecipeId: selectedRecipeId,
+            hasOnboarded: hasOnboarded
         )
         persistence.save(snapshot)
     }
 
-    /// Reset everything to sample data. Useful for debug and "start over" UX.
-    func resetToSamples() {
+    /// Replace everything with the Marisol-style demo (named starters, sample
+    /// journal, mid-bulk active bake). Reachable from Settings → "Load demo
+    /// data" so a user who wants to see the full app can opt in.
+    func loadDemoData() {
         recipes = SampleRecipes.all
         starters = SampleStarters.all
         journal = SampleJournal.all
@@ -122,9 +150,38 @@ final class AppState {
         kitchenTempC = 22.1
         kitchenHumidityPct = 54
         ovenStatus = "Off · preheat 7:30 AM"
-        userName = "Marisol"
+        userName = userName.isEmpty ? "Marisol" : userName
         selectedRecipeId = "hokkaido"
+        hasOnboarded = true
         screen = .home
+        // The sample bake isn't actually scheduled, so any pending bake
+        // notifications point at the old data — clear them.
+        NotificationManager.shared.cancelAllBakeReminders()
+        saveSoon()
+    }
+
+    /// Clear personal data (journal, active bake) and re-trigger onboarding.
+    /// Keeps the curated recipe library + starters so the app isn't a blank
+    /// slate after the user lands on it again.
+    func startOver() {
+        journal = []
+        activeBake = nil
+        userName = ""
+        hasOnboarded = false
+        screen = .home
+        recipes = SampleRecipes.all
+        starters = SampleStarters.all
+        selectedRecipeId = SampleRecipes.all.first?.id ?? ""
+        NotificationManager.shared.cancelAllBakeReminders()
+        saveNow()
+    }
+
+    /// Capture the user's name and flip the onboarded flag. Called from the
+    /// onboarding screen's "Get started" button.
+    func completeOnboarding(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        userName = trimmed.isEmpty ? "Baker" : trimmed
+        hasOnboarded = true
         saveSoon()
     }
 
@@ -170,6 +227,20 @@ final class AppState {
         saveSoon()
     }
 
+    /// Remove a recipe. If the detail screen is currently showing this id we
+    /// route back to the library so the user doesn't get stranded on a
+    /// "Recipe not found" stub.
+    func deleteRecipe(id: String) {
+        recipes.removeAll { $0.id == id }
+        if case .recipe(let current) = screen, current == id {
+            goTo(.library)
+        }
+        if selectedRecipeId == id {
+            selectedRecipeId = recipes.first?.id ?? selectedRecipeId
+        }
+        saveSoon()
+    }
+
     func addJournalEntry(_ entry: JournalEntry) {
         journal.insert(entry, at: 0)
         saveSoon()
@@ -183,6 +254,236 @@ final class AppState {
     func setUserName(_ name: String) {
         userName = name
         saveSoon()
+    }
+
+    // MARK: Photos
+
+    /// Save an image to disk and attach a `BakePhoto` entry to the active
+    /// bake's current (or specified) stage. Returns the stored filename so
+    /// callers that want to surface the photo elsewhere (e.g. the diagnostic
+    /// screen showing the newly-picked image) can read it back.
+    @discardableResult
+    func addPhoto(_ image: UIImage,
+                  toStage stageIndex: Int? = nil,
+                  note: String = "Just now") -> String {
+        let filename = persistence.savePhoto(image)
+        if var bake = activeBake {
+            let idx = stageIndex ?? bake.currentStageIndex
+            let photo = ActiveBake.BakePhoto(
+                time: CCFormat.clockTime.string(from: Date()),
+                assetName: filename,
+                note: note
+            )
+            bake.stagePhotos[idx, default: []].append(photo)
+            activeBake = bake
+            saveSoon()
+        }
+        return filename
+    }
+
+    /// Save an image and stash it on the matching starter as its newest photo.
+    @discardableResult
+    func setStarterPhoto(_ image: UIImage, starterId: String) -> String {
+        let filename = persistence.savePhoto(image)
+        if let idx = starters.firstIndex(where: { $0.id == starterId }) {
+            starters[idx].lastPhoto = filename
+            starters[idx].lastPhotoTime = CCFormat.clockTime.string(from: Date())
+            saveSoon()
+        }
+        return filename
+    }
+
+    /// Save a diagnostic photo and hand it off to the diagnostic screen via
+    /// `pendingDiagnosticPhoto`. The diagnostic screen consumes the value on
+    /// appear and clears it.
+    func queueDiagnosticPhoto(_ image: UIImage) {
+        pendingDiagnosticPhoto = persistence.savePhoto(image)
+    }
+
+    // MARK: Bake lifecycle
+
+    /// Build a fresh `ActiveBake` from a user-confirmed schedule + recipe,
+    /// schedule reminders, and navigate to the Active Bake screen. Replaces
+    /// any in-progress bake — the UI funnels through here only after the user
+    /// has confirmed on the Scheduler.
+    func startBake(from schedule: Schedule,
+                   recipe: Recipe,
+                   starterId: String?) {
+        let now = Date()
+        let scheduledIndices = Set(schedule.steps.map(\.stageIndex))
+        let firstScheduled = scheduledIndices.sorted().first ?? 0
+        let history: [ActiveBake.StageHistoryEntry] = recipe.stages.indices.map { idx in
+            let status: StepStatus
+            if !scheduledIndices.contains(idx) {
+                status = .skipped
+            } else if idx == firstScheduled {
+                status = .active
+            } else {
+                status = .pending
+            }
+            // Mark the landing stage as entered NOW so completeBake can report
+            // real elapsed times. Earlier-skipped stages get no timestamps.
+            return ActiveBake.StageHistoryEntry(
+                stageIndex: idx,
+                status: status,
+                note: nil,
+                enteredAt: status == .active ? now : nil,
+                exitedAt: nil
+            )
+        }
+
+        // If we land on a bulk-fold stage at start, use its fold count;
+        // otherwise borrow from the recipe's first bulk-fold stage anywhere.
+        // Final fallback of 4 covers legacy recipes with no per-stage count.
+        let landingStage = recipe.stages.indices.contains(firstScheduled)
+            ? recipe.stages[firstScheduled] : nil
+        let firstFoldStage = recipe.stages.first(where: { $0.kind == .bulkFold })
+        let foldSource = landingStage?.kind == .bulkFold ? landingStage : firstFoldStage
+
+        activeBake = ActiveBake(
+            recipeId: recipe.id,
+            startedAt: schedule.startTime,
+            bakeOutAt: schedule.endTime,
+            currentStageIndex: firstScheduled,
+            stageProgress: 0,
+            kitchenTempC: schedule.kitchenTempC,
+            starterId: starterId,
+            history: history,
+            stagePhotos: [:],
+            foldsDone: 0,
+            totalFolds: max(1, foldSource?.totalFolds ?? 4)
+        )
+        NotificationManager.shared.scheduleBakeReminders(for: schedule,
+                                                           recipe: recipe)
+        saveSoon()
+        goTo(.activeBake)
+    }
+
+    /// Mark the current stage done and move to the next non-skipped stage.
+    /// At the last stage, leave `currentStageIndex` in place but flip the
+    /// history entry to `.done` so `isComplete` flips true.
+    func advanceStage() {
+        moveStage(markingCurrentAs: .done)
+    }
+
+    /// Mark the current stage skipped and move to the next non-skipped stage.
+    func skipStage() {
+        moveStage(markingCurrentAs: .skipped)
+    }
+
+    /// Shared body for advance/skip — only the status on the outgoing entry
+    /// changes.
+    private func moveStage(markingCurrentAs status: StepStatus) {
+        guard var bake = activeBake, let recipe = recipe(bake.recipeId) else { return }
+        let now = Date()
+        if let outIdx = bake.history.firstIndex(where: { $0.stageIndex == bake.currentStageIndex }) {
+            bake.history[outIdx].status = status
+            bake.history[outIdx].exitedAt = now
+        }
+        let next = (bake.currentStageIndex + 1..<recipe.stages.count).first { idx in
+            bake.history.first(where: { $0.stageIndex == idx })?.status != .skipped
+        }
+        if let next {
+            bake.currentStageIndex = next
+            bake.stageProgress = 0
+            if let inIdx = bake.history.firstIndex(where: { $0.stageIndex == next }) {
+                bake.history[inIdx].status = .active
+                bake.history[inIdx].enteredAt = now
+            }
+            // Reset fold counters when entering a bulk-fold stage so the UI
+            // ring starts at 0/N for the new stage's N.
+            if recipe.stages[next].kind == .bulkFold {
+                bake.foldsDone = 0
+                bake.totalFolds = max(1, recipe.stages[next].totalFolds ?? bake.totalFolds)
+            }
+        }
+        // No next stage: bake is complete. The history entry was just flipped
+        // so `bake.isComplete` is now true and the UI surfaces the wrap-up.
+        activeBake = bake
+        saveSoon()
+    }
+
+    /// Log the bake to the journal, update the recipe's lastBake, clear
+    /// `activeBake`, cancel reminders, and return to Home. Caller is expected
+    /// to gate this on `bake.isComplete`.
+    func completeBake(rating: Int, note: String) {
+        guard let bake = activeBake, let recipe = recipe(bake.recipeId) else { return }
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let now = Date()
+
+        // Real elapsed bulk time when we have the timestamps; fall back to the
+        // recipe baseline for pre-Stage-3 bakes (no enteredAt/exitedAt).
+        let bulkEntry = bake.history.first { entry in
+            let kind = recipe.stages[entry.stageIndex].kind
+            return kind == .bulk || kind == .bulkFold
+        }
+        let bulkMinutes: Int = {
+            if let bulk = bulkEntry,
+               let entered = bulk.enteredAt,
+               let exited = bulk.exitedAt {
+                return max(0, Int(exited.timeIntervalSince(entered) / 60))
+            }
+            return recipe.stages.first(where: { $0.kind == .bulk || $0.kind == .bulkFold })?.durationMin ?? 0
+        }()
+
+        // Pick the freshest photo across the bake: highest stage index, most
+        // recently appended within that stage.
+        let photoAsset: String? = bake.stagePhotos.keys.sorted(by: >).lazy
+            .compactMap { idx in bake.stagePhotos[idx]?.last?.assetName }
+            .first
+
+        let entry = JournalEntry(
+            id: UUID().uuidString,
+            recipeId: recipe.id,
+            bakedAt: now,
+            rating: max(1, min(5, rating)),
+            hydrationPct: recipe.hydrationPct,
+            bulkMinutes: bulkMinutes,
+            kitchenC: bake.kitchenTempC,
+            note: trimmedNote,
+            photoAsset: photoAsset,
+            diagnosis: "Self-rated"
+        )
+        addJournalEntry(entry)
+
+        var updatedRecipe = recipe
+        updatedRecipe.lastBake = Recipe.LastBake(
+            rating: entry.rating,
+            bakedAt: now,
+            note: trimmedNote.isEmpty ? nil : trimmedNote
+        )
+        updateRecipe(updatedRecipe)
+
+        activeBake = nil
+        NotificationManager.shared.cancelAllBakeReminders()
+        saveSoon()
+        goTo(.home)
+    }
+
+    // MARK: Notifications
+
+    /// Prompt for permission the first time and refresh our cached auth
+    /// status. Idempotent: subsequent calls just re-read system state.
+    /// Returns true when notifications can fire after the call.
+    @discardableResult
+    func requestNotificationPermission() async -> Bool {
+        let granted = await NotificationManager.shared.requestPermissionIfNeeded()
+        let status = await NotificationManager.shared.authorizationStatus()
+        await MainActor.run { self.notificationAuthStatus = status }
+        return granted
+    }
+
+    /// Drop every pending bake reminder. Used when completing a bake or
+    /// resetting to samples.
+    func cancelAllBakeReminders() {
+        NotificationManager.shared.cancelAllBakeReminders()
+    }
+
+    /// Pull the latest auth status from the system. Cheap, async; call on
+    /// foreground and when surfacing the denied-banner UI.
+    func refreshNotificationAuthStatus() async {
+        let status = await NotificationManager.shared.authorizationStatus()
+        await MainActor.run { self.notificationAuthStatus = status }
     }
 
     // MARK: Sample active-bake (Marisol's Country Sourdough mid-bulk)

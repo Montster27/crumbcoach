@@ -310,7 +310,11 @@ struct BreadPhoto: View {
 
     var body: some View {
         ZStack {
-            if let n = assetName, UIImage(named: n) != nil {
+            if let n = assetName, let disk = PersistenceController.shared.loadPhoto(named: n) {
+                Image(uiImage: disk)
+                    .resizable()
+                    .scaledToFill()
+            } else if let n = assetName, UIImage(named: n) != nil {
                 Image(n)
                     .resizable()
                     .scaledToFill()
@@ -399,6 +403,8 @@ enum CCIcon: String {
     case sparkle = "sparkle"
     case bell   = "bell"
     case flame  = "flame"
+    case settings = "gearshape"
+    case trash  = "trash"
 }
 
 struct CCIconView: View {

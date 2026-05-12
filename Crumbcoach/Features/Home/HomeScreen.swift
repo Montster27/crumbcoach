@@ -5,23 +5,29 @@ import SwiftUI
 
 struct HomeScreen: View {
     var state: AppState
+    @State private var photoPickerOpen = false
 
     var body: some View {
         VStack(spacing: 20) {
             if let bake = state.activeBake, let recipe = state.recipe(bake.recipeId) {
-                ActiveBakeBanner(state: state, bake: bake, recipe: recipe)
+                ActiveBakeBanner(state: state, bake: bake, recipe: recipe,
+                                  photoPickerOpen: $photoPickerOpen)
             }
 
             // 3-col grid
             HStack(alignment: .top, spacing: 20) {
                 StarterCard(state: state)
                 UpNextCard(state: state)
-                DiagnosePromptCard(state: state)
+                DiagnosePromptCard(state: state, photoPickerOpen: $photoPickerOpen)
             }
 
             InsightsStrip(state: state)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .photoPicker(isPresented: $photoPickerOpen) { image in
+            state.queueDiagnosticPhoto(image)
+            state.goTo(.diagnose)
+        }
     }
 }
 
@@ -31,10 +37,27 @@ private struct ActiveBakeBanner: View {
     var state: AppState
     let bake: ActiveBake
     let recipe: Recipe
+    @Binding var photoPickerOpen: Bool
 
     var stage: Stage? {
         recipe.stages.indices.contains(bake.currentStageIndex)
             ? recipe.stages[bake.currentStageIndex] : nil
+    }
+
+    /// Banner copy for "Next action." Mid-bulk-folds we count the next fold;
+    /// otherwise we surface the upcoming stage by name. Falls back to a
+    /// finish-the-current-stage prompt when we're already on the last stage.
+    private var nextActionText: String {
+        if bake.isComplete { return "Log this bake" }
+        guard let stage else { return "—" }
+        if stage.kind == .bulkFold && bake.foldsDone < bake.totalFolds {
+            return "Fold \(bake.foldsDone + 1) of \(bake.totalFolds)"
+        }
+        let nextIdx = bake.currentStageIndex + 1
+        if recipe.stages.indices.contains(nextIdx) {
+            return recipe.stages[nextIdx].kind.rawValue
+        }
+        return "Finish \(stage.kind.rawValue.lowercased())"
     }
 
     var body: some View {
@@ -59,7 +82,7 @@ private struct ActiveBakeBanner: View {
                     HStack(spacing: 24) {
                         bannerStat(title: "Current stage", value: stage?.kind.rawValue ?? "—")
                         Rectangle().fill(Theme.border1).frame(width: 1).frame(maxHeight: 36)
-                        bannerStat(title: "Next action", value: "Fold #\(bake.foldsDone + 1) in 14 min")
+                        bannerStat(title: "Next action", value: nextActionText)
                         Rectangle().fill(Theme.border1).frame(width: 1).frame(maxHeight: 36)
                         bannerStat(title: "Bake out", value: CCFormat.clockShort.string(from: bake.bakeOutAt), mono: true)
                     }
@@ -80,7 +103,7 @@ private struct ActiveBakeBanner: View {
                     Button(action: { state.goTo(.activeBake) }) {
                         Label("Open bake", systemImage: "arrow.right")
                     }.ccPrimary()
-                    Button(action: { state.goTo(.diagnose) }) {
+                    Button(action: { photoPickerOpen = true }) {
                         Label("Photo", systemImage: "camera")
                     }.ccSecondary()
                 }
@@ -227,6 +250,7 @@ private struct UpNextCard: View {
 
 private struct DiagnosePromptCard: View {
     var state: AppState
+    @Binding var photoPickerOpen: Bool
 
     var body: some View {
         Button(action: { state.goTo(.diagnose) }) {
@@ -244,7 +268,7 @@ private struct DiagnosePromptCard: View {
                     .font(Typography.ui(12.5))
                     .foregroundStyle(Theme.slate600)
                     .padding(.top, 8)
-                Button(action: { state.goTo(.diagnose) }) {
+                Button(action: { photoPickerOpen = true }) {
                     Label("Take photo", systemImage: "camera")
                 }
                 .ccPrimary()

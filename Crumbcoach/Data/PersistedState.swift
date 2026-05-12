@@ -15,4 +15,8 @@ struct PersistedState: Codable {
     var ovenStatus: String
     var userName: String
     var selectedRecipeId: String
+    /// Set once the user completes onboarding (name entry). Defaults to false
+    /// so existing saves missing this field present onboarding once; AppState
+    /// grandfathers users who already had a non-empty `userName`.
+    var hasOnboarded: Bool = false
 }

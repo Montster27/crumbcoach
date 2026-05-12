@@ -37,7 +37,7 @@ enum SampleRecipes {
             Stage(kind: .feedLevain,  durationMin: 360, temperatureC: 24, note: "1:5:5 build, 50g starter + 250g flour + 250g water"),
             Stage(kind: .autolyse,    durationMin: 60,  temperatureC: 24, note: "Flour + water rest"),
             Stage(kind: .mix,         durationMin: 15,  temperatureC: 24, note: "Add levain + salt, pinch through"),
-            Stage(kind: .bulkFold,    durationMin: 270, temperatureC: 24, note: "4 sets of stretch & fold, 30 min apart"),
+            Stage(kind: .bulkFold,    durationMin: 270, temperatureC: 24, note: "4 sets of stretch & fold, 30 min apart", totalFolds: 4),
             Stage(kind: .preShape,    durationMin: 25,  temperatureC: 24, note: "Bench rest"),
             Stage(kind: .finalShape,  durationMin: 10,  temperatureC: 24, note: "Tight boule into banneton"),
             Stage(kind: .coldRetard,  durationMin: 720, temperatureC: 4,  note: "Overnight in fridge"),
@@ -69,7 +69,7 @@ enum SampleRecipes {
         ],
         stages: [
             Stage(kind: .mix,         durationMin: 10,  temperatureC: 24, note: "Combine until shaggy"),
-            Stage(kind: .bulkFold,    durationMin: 180, temperatureC: 24, note: "3 folds at 30 min"),
+            Stage(kind: .bulkFold,    durationMin: 180, temperatureC: 24, note: "3 folds at 30 min", totalFolds: 3),
             Stage(kind: .divide,      durationMin: 10,  temperatureC: 24),
             Stage(kind: .preShape,    durationMin: 25,  temperatureC: 24),
             Stage(kind: .finalShape,  durationMin: 10,  temperatureC: 24, note: "Couche, seam-up"),
@@ -102,7 +102,7 @@ enum SampleRecipes {
         ],
         stages: [
             Stage(kind: .mix,        durationMin: 12, temperatureC: 24, note: "Combine, no kneading"),
-            Stage(kind: .bulkFold,   durationMin: 180, temperatureC: 22, note: "3 sets of folds"),
+            Stage(kind: .bulkFold,   durationMin: 180, temperatureC: 22, note: "3 sets of folds", totalFolds: 3),
             Stage(kind: .coldRetard, durationMin: 720, temperatureC: 4,  note: "Overnight in pan"),
             Stage(kind: .finalProof, durationMin: 120, temperatureC: 24, note: "Come to room temp, dimple"),
             Stage(kind: .bake,       durationMin: 25,  temperatureC: 230, note: "Olive oil + flaky salt"),
@@ -178,7 +178,7 @@ enum SampleRecipes {
         ],
         stages: [
             Stage(kind: .mix,        durationMin: 12,  temperatureC: 24, note: "Combine, very wet"),
-            Stage(kind: .bulkFold,   durationMin: 240, temperatureC: 22, note: "Coil folds every 30 min"),
+            Stage(kind: .bulkFold,   durationMin: 240, temperatureC: 22, note: "Coil folds every 30 min", totalFolds: 4),
             Stage(kind: .coldRetard, durationMin: 720, temperatureC: 4,  note: "Overnight"),
             Stage(kind: .divide,     durationMin: 20,  temperatureC: 22, note: "Generous flour"),
             Stage(kind: .finalProof, durationMin: 45,  temperatureC: 22),

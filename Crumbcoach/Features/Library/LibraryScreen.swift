@@ -6,6 +6,7 @@ struct LibraryScreen: View {
     var state: AppState
     @State private var search: String = ""
     @State private var filter: String = "all"
+    @State private var editorOpen: Bool = false
 
     private let filters: [(String, String)] = [
         ("all",       "All"),
@@ -67,9 +68,9 @@ struct LibraryScreen: View {
                         .stroke(Theme.border1, lineWidth: 1)
                 )
 
-                Button(action: {}) { Label("Paste URL", systemImage: "link") }
+                Button(action: { editorOpen = true }) { Label("Paste URL", systemImage: "link") }
                     .ccSecondary()
-                Button(action: {}) { Label("New recipe", systemImage: "plus") }
+                Button(action: { editorOpen = true }) { Label("New recipe", systemImage: "plus") }
                     .ccPrimary()
             }
 
@@ -101,6 +102,9 @@ struct LibraryScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $editorOpen) {
+            RecipeEditorScreen(state: state, editingRecipeId: nil)
+        }
     }
 
     private func statCount(_ n: Int, _ label: String) -> some View {

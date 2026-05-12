@@ -12,6 +12,7 @@ struct RecipeDetailScreen: View {
     @State private var scale: Double = 1.0
     @State private var hydration: Double = 75
     @State private var conversion: ConversionMode = .direct
+    @State private var editorOpen: Bool = false
 
     enum ConversionMode: String, CaseIterable, Identifiable {
         case direct, tangzhong, yudane
@@ -33,6 +34,9 @@ struct RecipeDetailScreen: View {
             content(for: recipe)
                 .onAppear { initSliders(from: recipe) }
                 .onChange(of: recipeId) { _, _ in initSliders(from: recipe) }
+                .sheet(isPresented: $editorOpen) {
+                    RecipeEditorScreen(state: state, editingRecipeId: recipeId)
+                }
         } else {
             Text("Recipe not found")
                 .font(Typography.ui(13))
@@ -124,9 +128,17 @@ struct RecipeDetailScreen: View {
                         .padding(.top, 6)
                 }
                 Spacer()
-                if case .linked = recipe.source {
-                    Button(action: {}) {
-                        Label("Open original", systemImage: "link")
+                HStack(spacing: 8) {
+                    if case .linked(let url, _, _) = recipe.source,
+                       let u = URL(string: url) {
+                        Button {
+                            UIApplication.shared.open(u)
+                        } label: {
+                            Label("Open original", systemImage: "link")
+                        }.ccSecondary()
+                    }
+                    Button { editorOpen = true } label: {
+                        Label("Edit", systemImage: "pencil")
                     }.ccSecondary()
                 }
             }

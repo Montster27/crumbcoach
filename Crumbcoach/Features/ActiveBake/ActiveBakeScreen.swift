@@ -10,14 +10,45 @@ struct ActiveBakeScreen: View {
     @State private var proofOvenActive: Bool = false
     @State private var proofOvenTempC: Double = 26
 
+    // Photo-picker state: when non-nil, the user wants to add a photo to that
+    // stage index. We back the .photoPicker modifier with a derived Bool
+    // binding so it follows our enum nicely.
+    @State private var photoTargetStage: Int? = nil
+
+    @State private var completeSheetOpen: Bool = false
+
     @ViewBuilder
     var body: some View {
-        if let bake = state.activeBake, let recipe = state.recipe(bake.recipeId) {
-            content(bake: bake, recipe: recipe)
-        } else {
-            Text("No active bake")
-                .font(Typography.ui(13))
-                .foregroundStyle(Theme.slate500)
+        VStack(spacing: 16) {
+            if state.notificationAuthStatus == .denied {
+                NotificationsDeniedBanner()
+            }
+            Group {
+                if let bake = state.activeBake, let recipe = state.recipe(bake.recipeId) {
+                    content(bake: bake, recipe: recipe)
+                } else {
+                    EmptyActiveBakeView { state.goTo(.scheduler) }
+                }
+            }
+        }
+        .task {
+            // Re-query on appear in case the user toggled the system permission
+            // while we weren't looking (e.g. Settings → Notifications).
+            await state.refreshNotificationAuthStatus()
+        }
+        .photoPicker(isPresented: Binding(
+            get: { photoTargetStage != nil },
+            set: { if !$0 { photoTargetStage = nil } }
+        )) { image in
+            if let stage = photoTargetStage {
+                state.addPhoto(image, toStage: stage)
+            }
+            photoTargetStage = nil
+        }
+        .sheet(isPresented: $completeSheetOpen) {
+            CompleteBakeSheet { rating, note in
+                state.completeBake(rating: rating, note: note)
+            }
         }
     }
 
@@ -131,7 +162,7 @@ struct ActiveBakeScreen: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(recipe.title)
                             .font(Typography.ui(13, weight: .semibold)).foregroundStyle(.white)
-                        Text("\(stage.kind.rawValue) · \(bake.foldsDone)/\(bake.totalFolds) folds")
+                        Text("\(stage.kind.rawValue) · \(liveActivityDetail(bake: bake, recipe: recipe, stage: stage))")
                             .font(Typography.ui(11)).foregroundStyle(.white.opacity(0.65))
                     }
                     Spacer()
@@ -195,11 +226,9 @@ struct ActiveBakeScreen: View {
                 )
 
                 HStack(spacing: 10) {
-                    Button { state.incrementFold() } label: {
-                        Label("Mark fold \(bake.foldsDone + 1) done", systemImage: "checkmark")
-                    }.ccPrimary()
+                    primaryActionButton(bake: bake, stage: stage)
 
-                    Button { } label: {
+                    Button { photoTargetStage = bake.currentStageIndex } label: {
                         Label("Add photo", systemImage: "camera")
                     }.ccSecondary()
 
@@ -217,7 +246,9 @@ struct ActiveBakeScreen: View {
                     }.ccSecondary()
 
                     Spacer()
-                    Button("Skip stage") { }.ccGhost(compact: true)
+                    Button("Skip stage") { state.skipStage() }
+                        .ccGhost(compact: true)
+                        .disabled(bake.isComplete)
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
@@ -347,6 +378,38 @@ struct ActiveBakeScreen: View {
         return times
     }
 
+    /// Subtitle shown under the recipe title in the Live Activity preview.
+    /// Folds-remaining count for bulk-fold stages; otherwise a position hint
+    /// so non-fold stages don't show "0/4 folds."
+    private func liveActivityDetail(bake: ActiveBake, recipe: Recipe, stage: Stage) -> String {
+        if bake.isComplete { return "ready to log" }
+        if stage.kind == .bulkFold {
+            return "\(bake.foldsDone)/\(bake.totalFolds) folds"
+        }
+        return "stage \(bake.currentStageIndex + 1) of \(recipe.stages.count)"
+    }
+
+    /// One button that morphs through the three meaningful primary actions:
+    /// - bulk-fold stage with folds remaining → bump the fold counter
+    /// - any other in-progress stage → mark the stage done
+    /// - bake fully complete → open the journal-entry sheet
+    @ViewBuilder
+    private func primaryActionButton(bake: ActiveBake, stage: Stage) -> some View {
+        if bake.isComplete {
+            Button { completeSheetOpen = true } label: {
+                Label("Complete bake", systemImage: "checkmark.seal.fill")
+            }.ccPrimary()
+        } else if stage.kind == .bulkFold && bake.foldsDone < bake.totalFolds {
+            Button { state.incrementFold() } label: {
+                Label("Mark fold \(bake.foldsDone + 1) done", systemImage: "checkmark")
+            }.ccPrimary()
+        } else {
+            Button { state.advanceStage() } label: {
+                Label("Mark \(stage.kind.rawValue) done", systemImage: "checkmark")
+            }.ccPrimary()
+        }
+    }
+
     private func timelineRow(idx: Int, stage: Stage, status: StepStatus,
                               startTime: Date, bake: ActiveBake) -> some View {
         let isActive = status == .active
@@ -377,14 +440,13 @@ struct ActiveBakeScreen: View {
                 let photos = bake.stagePhotos[idx] ?? []
                 if !photos.isEmpty || status != .pending {
                     HStack(spacing: 6) {
-                        ForEach(photos) { _ in
-                            Rectangle().fill(Theme.primaryTint)
+                        ForEach(photos) { photo in
+                            BreadPhoto(assetName: photo.assetName, kind: .crumb, height: 44)
                                 .frame(width: 44, height: 44)
-                                .overlay(CCIconView(icon: .camera, size: 15, color: Theme.primary))
                                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         if status != .pending {
-                            Button(action: {}) {
+                            Button(action: { photoTargetStage = idx }) {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(isActive ? Theme.primary : Theme.slate300,
                                             style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
@@ -464,6 +526,142 @@ private struct TimelineDot: View {
                 .background(Circle().fill(.white))
                 .frame(width: 22, height: 22)
         }
+    }
+}
+
+// Surfaced on the Active Bake screen when the user has denied notifications.
+// We can't re-prompt programmatically after a denial — only Settings.app can
+// flip the bit — so the banner is the polite nudge.
+private struct NotificationsDeniedBanner: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.warm50)
+                    .frame(width: 36, height: 36)
+                CCIconView(icon: .bell, size: 16, color: Theme.warm700)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Reminders off")
+                    .font(Typography.ui(13.5, weight: .semibold))
+                    .foregroundStyle(Theme.slate900)
+                Text("Enable notifications in Settings to be pinged at each step.")
+                    .font(Typography.ui(12))
+                    .foregroundStyle(Theme.slate700)
+            }
+            Spacer()
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .ccGhost(compact: true)
+        }
+        .padding(14)
+        .background(Theme.warm50, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Theme.warm.opacity(0.25), lineWidth: 1)
+        )
+    }
+}
+
+// Shown on the Active Bake screen when no bake is in progress — directs the
+// user back to the Scheduler so they can create one.
+private struct EmptyActiveBakeView: View {
+    let onScheduler: () -> Void
+    var body: some View {
+        SurfaceCard {
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle().fill(Theme.primaryTint).frame(width: 64, height: 64)
+                    CCIconView(icon: .play, size: 24, color: Theme.primary)
+                }
+                VStack(spacing: 4) {
+                    Text("No active bake")
+                        .font(Typography.display(20, weight: .medium))
+                        .foregroundStyle(Theme.slate900)
+                    Text("Pick a recipe and target time on the Scheduler to kick one off.")
+                        .font(Typography.ui(13))
+                        .foregroundStyle(Theme.slate600)
+                        .multilineTextAlignment(.center)
+                }
+                Button(action: onScheduler) {
+                    Label("Open Scheduler", systemImage: "clock")
+                }.ccPrimary()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+        }
+    }
+}
+
+// Inline wrap-up sheet shown when the bake's stages are all done/skipped.
+// Captures a 1-5 rating and a freeform note; on save we hand both to
+// `state.completeBake` which writes the journal entry.
+private struct CompleteBakeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onComplete: (Int, String) -> Void
+    @State private var rating: Int = 5
+    @State private var note: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Kicker("Wrap up")
+                Text("Log this bake")
+                    .font(Typography.display(22, weight: .medium))
+                    .foregroundStyle(Theme.slate900)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Rating")
+                    .font(Typography.ui(12, weight: .medium))
+                    .foregroundStyle(Theme.slate700)
+                HStack(spacing: 6) {
+                    ForEach(1...5, id: \.self) { i in
+                        Button(action: { rating = i }) {
+                            Image(systemName: i <= rating ? "star.fill" : "star")
+                                .font(.system(size: 26, weight: .regular))
+                                .foregroundStyle(i <= rating ? Theme.warm : Theme.slate300)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Notes")
+                    .font(Typography.ui(12, weight: .medium))
+                    .foregroundStyle(Theme.slate700)
+                TextField("How did it go? Crumb, crust, bulk timing…",
+                          text: $note, axis: .vertical)
+                    .lineLimit(3...6)
+                    .font(Typography.ui(13))
+                    .padding(10)
+                    .background(Color.white,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Theme.border1, lineWidth: 1)
+                    )
+            }
+
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .ccGhost(compact: true)
+                Spacer()
+                Button {
+                    onComplete(rating, note)
+                    dismiss()
+                } label: {
+                    Label("Save bake", systemImage: "checkmark.seal.fill")
+                }.ccPrimary()
+            }
+        }
+        .padding(28)
+        .frame(width: 520)
+        .background(Theme.surface1)
     }
 }
 

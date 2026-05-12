@@ -36,4 +36,8 @@ struct Starter: Identifiable, Codable, Hashable {
     var peakHeightPct: Int       // 162 — peak as % of feed volume
     var riseHistory: [Double]    // last-N samples for sparkline
     var feedings: [StarterFeeding]
+    /// Latest user-captured photo of this starter — bundled asset name or
+    /// a `<uuid>.jpg` filename written to PersistenceController.photosDirectory.
+    var lastPhoto: String? = nil
+    var lastPhotoTime: String? = nil
 }

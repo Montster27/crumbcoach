@@ -47,6 +47,12 @@ struct ActiveBake: Identifiable, Codable, Hashable {
         var stageIndex: Int
         var status: StepStatus
         var note: String?
+        // Wall-clock entry/exit captured by AppState's stage-transition path
+        // so the journal can report real elapsed times instead of the
+        // recipe's baseline duration. Optional so pre-Stage-3 persisted
+        // bakes decode cleanly.
+        var enteredAt: Date? = nil
+        var exitedAt: Date? = nil
     }
 
     struct BakePhoto: Identifiable, Codable, Hashable {
@@ -54,5 +60,15 @@ struct ActiveBake: Identifiable, Codable, Hashable {
         var time: String       // "7:14 PM"
         var assetName: String? // sample asset
         var note: String
+    }
+
+    /// True once every history entry is either done or explicitly skipped
+    /// AND at least one stage was actually done — keeps a spam-skip from
+    /// producing a journal entry for a bake the user never executed.
+    var isComplete: Bool {
+        guard !history.isEmpty else { return false }
+        let allTerminal = history.allSatisfy { $0.status == .done || $0.status == .skipped }
+        let anyDone = history.contains { $0.status == .done }
+        return allTerminal && anyDone
     }
 }

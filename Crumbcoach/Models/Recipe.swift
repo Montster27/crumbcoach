@@ -92,6 +92,7 @@ struct Stage: Identifiable, Codable, Hashable {
     var temperatureC: Double?        // optional ambient or oven temp
     var note: String? = nil
     var scaldRef: String? = nil      // "yudane" | "tangzhong" — links to preferment block
+    var totalFolds: Int? = nil       // only meaningful for .bulkFold; otherwise nil
 }
 
 struct Preferment: Identifiable, Codable, Hashable {

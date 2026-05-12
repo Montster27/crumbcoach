@@ -49,6 +49,9 @@ Crumbcoach/
 │   └── Components.swift             # Card, Kicker, StatusPill, TagPill,
 │                                    # RingProgress, Sparkline, BreadPhoto,
 │                                    # CCIcon/CCIconView, CCButtonStyle
+├── Shared/                          # Cross-cutting helpers (Stage 1+)
+│   └── PhotoPicker.swift            # PHPicker + UIImagePicker wrappers,
+│                                    # .photoPicker(isPresented:onPick:) modifier
 └── Features/
     ├── Shell/AppShell.swift         # sidebar + header
     ├── Home/HomeScreen.swift
@@ -198,6 +201,40 @@ the `ActiveBake.stagePhotos` model and the diagnostic flow.
   `startAnalysis()` timer. Just feed it a real photo.
 - The model itself; reuse `ActiveBake.BakePhoto`.
 
+### Stage 1 — completion notes
+
+What landed and what later stages can lean on:
+
+- `Crumbcoach/Shared/PhotoPicker.swift` — `PhotoPicker(source:onPick:)` and a
+  `View.photoPicker(isPresented:onPick:) -> UIImage` modifier that shows a
+  confirmation dialog (Camera / Library) and then the sheet. Camera falls
+  through to the library if the device has no camera (e.g. Simulator).
+- `PersistenceController` exposes `photosDirectory: URL`,
+  `savePhoto(_:quality:) -> String` (returns `<uuid>.jpg`),
+  `loadPhoto(named:) -> UIImage?`, and `photoURL(for:) -> URL`.
+- `BreadPhoto(assetName:)` resolves disk → bundled asset → gradient, so any
+  filename returned from `savePhoto` Just Works as an asset name.
+- `AppState`:
+  - `persistence` is now `let` (was `private`) — Stage 2's
+    `NotificationManager` is free to read/write its own files via the same
+    controller if it ever needs to.
+  - `addPhoto(_:toStage:note:) -> String` — attach to active bake.
+  - `setStarterPhoto(_:starterId:) -> String` — overwrites the selected
+    starter's `lastPhoto` / `lastPhotoTime`.
+  - `queueDiagnosticPhoto(_:)` + `pendingDiagnosticPhoto: String?` — one-shot
+    hand-off slot consumed by `DiagnosticScreen.onAppear`. Not persisted.
+- `Starter` gained `lastPhoto: String?` and `lastPhotoTime: String?` (both
+  default to nil — old persisted state still decodes cleanly).
+- `Info.plist` has `NSCameraUsageDescription` and
+  `NSPhotoLibraryUsageDescription` (configured in `project.yml`).
+
+Known gaps deliberately left for later:
+
+- Diagnostic "edit context" / region annotations still operate on the
+  showcase image overlay; not pixel-aligned to user photos.
+- Starter photo flow stores only `lastPhoto` — no per-feeding photo history.
+- "View grid →" in the ActiveBake timeline header is still a stub.
+
 ---
 
 ## Stage 2 — Local notifications for schedule
@@ -258,6 +295,75 @@ out.
 
 - Schedule math is solid; don't refactor `Scheduler`. Just consume its
   output.
+
+### Stage 2 — completion notes
+
+What landed and what Stage 3 can lean on:
+
+- `Crumbcoach/Shared/NotificationManager.swift` — `NotificationManager.shared`
+  singleton wrapping `UNUserNotificationCenter`. Public API:
+  - `authorizationStatus() async -> UNAuthorizationStatus`
+  - `requestPermissionIfNeeded() async -> Bool` (idempotent; reads system
+    state, only prompts when `.notDetermined`)
+  - `scheduleBakeReminders(for schedule:Schedule, recipe:Recipe)` —
+    cancels every prior `bake-*` reminder then schedules one
+    `UNTimeIntervalNotificationTrigger` per action point, keyed
+    `bake-<schedule.id>-<stepIdx>(-<subIdx>)`.
+  - `cancelBakeReminders(for scheduleId: UUID)` — narrow cancel for one
+    schedule.
+  - `cancelAllBakeReminders()` — broad cancel, used by `resetToSamples`.
+  - `NotificationManager.bakeReminderTapped` — `Notification.Name` posted
+    on `NotificationCenter.default` when a bake reminder is tapped. The
+    shell observes it and routes to `.activeBake`.
+- Action-point heuristics (private to the manager) cover `.mix`,
+  `.bulkFold` (4 evenly-spaced fold pings — Stage 3 will replace 4 with a
+  real `Stage.totalFolds`), `.preShape`, `.finalShape`, `.coldRetard`
+  (start + end), and `.bake` (start + end / bake-out). Autolyse, plain
+  bulk, divides, scalds, etc. are intentionally silent per spec.
+- `AppState` gained:
+  - `notificationAuthStatus: UNAuthorizationStatus` — cached system state
+    used to drive the denied banner. Not persisted (system is the truth).
+  - `requestAndScheduleBakeReminders(for:recipe:) async -> Bool` — prompts
+    on first call, refreshes cached status, schedules if granted.
+  - `cancelAllBakeReminders()`
+  - `refreshNotificationAuthStatus() async`
+- `CrumbcoachApp.init` touches `NotificationManager.shared` so the
+  delegate is registered before scenes connect (avoids dropping a
+  cold-launch tap). `scenePhase == .active` refreshes the cached auth
+  status; `bakeReminderTapped` routes to `.activeBake`.
+- `SchedulerScreen.confirmAndStart` calls the AppState helper inside a
+  `Task` then immediately navigates — Stage 3 will replace this with
+  `startBake(from:recipe:)` and the bake creation will live there.
+- `ActiveBakeScreen` shows a `NotificationsDeniedBanner` (warm/amber,
+  "Open Settings" deep link) above the bake content when
+  `notificationAuthStatus == .denied`. The screen `.task` refreshes the
+  status on appear.
+- `project.yml` adds `NSUserNotificationsUsageDescription` (regenerated
+  into `Info.plist`).
+
+Known gaps deliberately left for Stage 3:
+
+- ~~`bulkFold` always assumes 4 folds.~~ Closed in Stage 3 — manager now reads
+  `Stage.totalFolds ?? 4`.
+- No persisted "active schedule id" — `cancelAllBakeReminders` is the
+  safe sledgehammer until Stage 3 binds a Schedule to an ActiveBake.
+- ~~The Scheduler still navigates to the seeded sample bake on confirm.~~
+  Closed in Stage 3 — `confirmAndStart` now calls
+  `state.startBake(from:recipe:starterId:)`.
+
+Post-Stage 3 follow-ups landed:
+
+- Cancel-add race: replaced the prefix-fetch cancellation with a deterministic
+  `scheduledIdentifiers: Set<String>` tracked alongside each `add()`, so cancel
+  is synchronous and freshly-scheduled requests can't be swept up by a stale
+  async callback. The set is hydrated from existing pending requests on
+  singleton init, so prior-launch reminders remain cancellable.
+- Multi-bake recipes: the bake-out "pull the bread from the oven" body now
+  fires only on the *last* `.bake` step; earlier bake steps in
+  double-bake recipes get a softer "First bake done…" instead.
+- Cold-launch tap: delegate sets a `pendingBakeTap` flag in addition to
+  posting `bakeReminderTapped`; `consumePendingBakeTap()` is drained by the
+  shell on first appear so a tap before SwiftUI observers attach isn't lost.
 
 ---
 
@@ -336,6 +442,86 @@ The active bake on the receiving end is always the seeded sample.
 - The seeded `ActiveBake` factory (`AppState.makeSampleActiveBake()`)
   stays as the fallback for first-launch demo data.
 
+### Stage 3 — completion notes
+
+What landed and what later stages can lean on:
+
+- `Stage` gained an optional `totalFolds: Int?` (defaults to nil — old
+  persisted recipes decode unchanged). `bulkFold` stages in the seed library
+  now carry the count explicitly (Country/Ciabatta 4, Baguette/Focaccia 3).
+  `NotificationManager` reads `recipe.stages[step.stageIndex].totalFolds ?? 4`
+  so the fold pings always match the recipe rather than a hardcoded 4.
+- `ActiveBake.isComplete` (computed): `!history.isEmpty &&
+  history.allSatisfy { .done || .skipped }`. UI gates the wrap-up flow on this.
+- `AppState`:
+  - `startBake(from:recipe:starterId:)` — builds a fresh `ActiveBake` from a
+    confirmed `Schedule` + `Recipe`. History spans every recipe stage; stages
+    not present in the schedule (e.g. cold retard when the user opted out)
+    are pre-marked `.skipped`, the first scheduled stage starts `.active`,
+    the rest `.pending`. `currentStageIndex` lands on the first scheduled
+    stage. `totalFolds` is sourced from that stage if it's a bulk-fold, else
+    the recipe's first bulk-fold stage, else 4. Schedules reminders via
+    `NotificationManager.shared.scheduleBakeReminders` and navigates to
+    `.activeBake`.
+  - `advanceStage()` / `skipStage()` — both flip the outgoing history entry
+    (`.done` vs `.skipped`) and move `currentStageIndex` to the next
+    non-skipped recipe stage. Entering a bulk-fold stage resets
+    `foldsDone = 0` and refreshes `totalFolds` from the stage. When there's
+    no next stage, `currentStageIndex` stays put and `isComplete` flips
+    true on the next state read.
+  - `completeBake(rating:note:)` — writes a `JournalEntry` (current time,
+    clamped 1-5 rating, recipe hydration, recipe bulk/bulkFold duration,
+    bake's kitchen temp, freshest stage photo, diagnosis "Self-rated"),
+    updates `Recipe.lastBake`, clears `activeBake`, cancels all bake
+    reminders, and navigates home.
+  - `requestNotificationPermission() async -> Bool` replaces the Stage 2
+    `requestAndScheduleBakeReminders`. Scheduling is now `startBake`'s
+    responsibility, so the helper just prompts + refreshes the cached
+    `notificationAuthStatus`.
+- `SchedulerScreen.confirmAndStart` now calls
+  `state.startBake(from:recipe:starterId:)` with the first user starter for
+  sourdough recipes (nil for everything else) and fires the permission
+  prompt in parallel.
+- `ActiveBakeScreen`:
+  - New `EmptyActiveBakeView` with an "Open Scheduler" CTA when
+    `state.activeBake == nil` (replaces the bare "No active bake" string).
+  - `primaryActionButton(bake:stage:)` morphs through three states:
+    `Mark fold N done` (bulk-fold with folds remaining), `Mark <stage> done`
+    (advance any other stage), `Complete bake` (when `bake.isComplete`).
+  - `Skip stage` now calls `state.skipStage()`; disabled once
+    `bake.isComplete`.
+  - `CompleteBakeSheet` — 5-star rating + note `TextField`, presented as a
+    `.sheet` when the user taps the wrapped-up primary button. Hands the
+    rating + note to `state.completeBake`.
+- `AppShell`:
+  - Sidebar "LIVE" badge on the Active Bake entry is gated on
+    `state.activeBake != nil` (was always on).
+  - Header title for `.activeBake` falls back to "No bake in progress" when
+    the bake is nil and shows "<recipe> · ready to log" when complete.
+
+Known gaps deliberately left for later:
+
+- Notifications are scheduled once at `startBake` and never recomputed when
+  the user advances / skips / runs late. The Plan §2 hook (cancel + replace
+  on history change) is still TODO for a future refinement.
+- `completeBake` writes recipe baseline `bulkMinutes` to the journal rather
+  than the actual elapsed bulk window — fine for v1, revisit when we track
+  actual stage durations.
+- The seeded `ActiveBake.makeSampleActiveBake()` remains the first-launch
+  fallback; we don't autorun `startBake` from sample data.
+
+Post-Stage 3 follow-ups landed:
+
+- Scheduler now seeds `recipeId` from `state.selectedRecipeId` in its `init`,
+  so tapping "Schedule a bake" on a recipe detail arrives with the right
+  recipe selected instead of resetting to the default.
+- `confirmAndStart` prompts for notification permission *before* calling
+  `state.startBake` (was the other order). The confirm button is disabled via
+  an `isConfirming` flag while the prompt is in-flight so a double-tap can't
+  spawn two bakes.
+- `RecipeDetailScreen` "Open original" actually opens the URL via
+  `UIApplication.shared.open` (was a no-op).
+
 ---
 
 ## Stage 4 — Recipe editor
@@ -391,6 +577,59 @@ edit the seeded ones in-memory.
   twin-scald). Edit the simple case first; preferments are read-only in
   v1.
 
+### Stage 4 — completion notes
+
+What landed and what later stages can lean on:
+
+- New file `Features/Library/RecipeEditorScreen.swift`. Modal sheet with
+  three Form sections (Recipe metadata / Ingredients / Stages) wrapped
+  in a `NavigationStack` for Cancel + Save chrome. Sized
+  `minWidth: 640, idealWidth: 760, minHeight: 720, idealHeight: 860`
+  for iPad landscape.
+- Editing UX:
+  - Ingredients: name + category Picker + grams. Swipe-to-delete via
+    `.onDelete`. "Add ingredient" appends a blank flour row.
+  - Stages: kind Picker + minutes + optional °C + optional note.
+    `.onDelete` + `.onMove` (via `EditButton`). Bulk-fold stages also
+    expose a `totalFolds` `Stepper` (1...10).
+  - URL field is always visible. If filled on save, source becomes
+    `.linked(url:sourceName:sourceLogo:nil)`; if empty on a brand-new
+    recipe, source stays `.userCreated`; for edits with no URL the
+    existing source is preserved.
+- `RecipeEditorScreen.blank()` seeds new recipes with a four-fold
+  sourdough skeleton (flour / water / salt / levain + mix → bulkFold →
+  shape → retard → bake) so the editor isn't empty.
+- Save flow recomputes `totalDoughGrams` from ingredient sums, then
+  re-derives each ingredient's `bakersPct` against the flour total, then
+  re-derives recipe-level `hydrationPct / saltPct / leavenPct` via
+  `BakersMath.computePercentages`. Blank-name zero-weight rows are
+  dropped. After save the editor sets `state.selectedRecipeId` to the
+  new id so the library scrolls/highlights cleanly.
+- Validation surfaces inline only after the first Save tap (`triedSave`
+  flag): title non-empty, ≥1 flour ingredient with weight > 0, ≥1
+  stage, no negative weights/durations.
+- `AppState.deleteRecipe(id:)` added. If the current screen is
+  `.recipe(id)` we route back to `.library`; if `selectedRecipeId`
+  matched we move it to the first remaining recipe.
+- Wiring:
+  - `LibraryScreen` — "New recipe" and "Paste URL" both present the
+    editor as `.sheet(isPresented: $editorOpen)`. The URL flow uses the
+    same editor; user types the URL in the metadata section.
+  - `RecipeDetailScreen` — new "Edit" button next to "Open original" in
+    the header. "Open original" now actually opens the linked URL via
+    `UIApplication.shared.open`.
+
+Known gaps deliberately left for later:
+
+- Preferments (tangzhong / yudane / levain build) are read-only — the
+  editor can't add or modify preferment blocks. Hand-edit through code
+  for now.
+- `twinScald` toggle isn't exposed. Existing twin-scald recipes round-
+  trip but can't be created in the editor.
+- "Paste URL" doesn't pre-parse the URL or fetch JSON-LD — Stage 8.
+- No photo picker for `Recipe.photo` yet; the editor preserves the
+  existing asset name but can't change it.
+
 ---
 
 ## Stage 5 — Settings & onboarding
@@ -433,6 +672,58 @@ reset) and new users see a brief intro on first launch.
 
 - The persistence schema works; just add fields to `PersistedState`.
   Version bump optional — graceful fallback handles old files.
+
+### Stage 5 — completion notes
+
+What landed:
+
+- **Clean first-launch state.** Fresh installs no longer ship with the
+  Marisol-style mid-bulk active bake or the 6 demo journal entries.
+  Recipes (9) and starters (2) still seed — they're the curated library
+  + sample starters worth exploring. `userName` starts empty, kitchen
+  defaults to 22.0 °C / 50 % / Off.
+- **`PersistedState.hasOnboarded: Bool = false`** added (defaulted so
+  pre-Stage-5 saves still decode). `AppState.init` grandfathers existing
+  users: if a loaded save has a non-empty `userName`, the user is
+  considered onboarded even if the flag was missing.
+- **`OnboardingScreen`** (`Features/Onboarding/OnboardingScreen.swift`)
+  — single-card layout with brand mark, name field, "Get started"
+  primary button, and a "Load demo data" secondary link. Presented as
+  `fullScreenCover` from `CrumbcoachApp.body` while
+  `!state.hasOnboarded`. Submit calls `state.completeOnboarding(name:)`
+  which flips the flag and dismisses.
+- **`SettingsScreen`** (`Features/Settings/SettingsScreen.swift`)
+  — Profile (rename), Notifications status pill + Settings.app deep link,
+  Data ("Load demo" / "Start over"), About (version, build, counts).
+- **`AppState`** additions:
+  - `hasOnboarded: Bool` stored property (was inferred-only before).
+  - `completeOnboarding(name:)` — sets `userName` (falling back to "Baker"
+    on empty input) and flips `hasOnboarded` true.
+  - `loadDemoData()` (renamed from `resetToSamples`) — keeps the user's
+    name if non-empty; otherwise restores Marisol.
+  - `startOver()` — clears journal + active bake, keeps the curated
+    recipe library + starters, flips `hasOnboarded` false so the user is
+    sent back through onboarding. Uses `saveNow` for an immediate flush.
+  - New `.settings` screen case (in `Screen` enum + `AppShell` switch +
+    `screenId` map).
+- **`AppShell`** sidebar gains a Settings item (gear icon). Header copy
+  for `.home` falls back to just the greeting when `userName` is empty
+  ("Good morning" instead of "Good morning, "). Brand subtitle falls
+  back to "Your kitchen" when `userName` is empty.
+- **`StarterScreen`** now seeds `selectedId` from
+  `state.starters.first?.id` instead of hard-coding `"ruby"`. Empty
+  starter list renders no detail panel (chips row is also empty).
+- **CCIcon** gains `.settings = "gearshape"` and `.trash`.
+
+Known gaps:
+
+- Units (g vs oz), kitchen-temperature source switcher (manual vs
+  HomeKit), and the multi-page onboarding tour are still TODO — the
+  scope was scaled back to the minimum that makes the app feel like
+  yours rather than Marisol's.
+- The "Load demo data" alert wording calls itself destructive, but it
+  is — it replaces the user's journal/active bake. A future pass could
+  warn more explicitly or merge instead of replace.
 
 ---
 
@@ -553,9 +844,9 @@ Bring the seed library to 50 originals across all bread types per spec
 
 | Stage | Status   | Owner | Notes |
 |-------|----------|-------|-------|
-| 1     | not started |       |       |
-| 2     | not started |       |       |
-| 3     | not started |       |       |
-| 4     | not started |       |       |
-| 5     | not started |       |       |
+| 1     | done     |       | See "Stage 1 — completion notes". |
+| 2     | done     |       | See "Stage 2 — completion notes". |
+| 3     | done     |       | See "Stage 3 — completion notes". |
+| 4     | done     |       | See "Stage 4 — completion notes". |
+| 5     | done     |       | See "Stage 5 — completion notes". |
 | 6+    | not started |       |       |

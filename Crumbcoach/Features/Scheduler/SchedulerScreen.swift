@@ -9,12 +9,25 @@ struct SchedulerScreen: View {
 
     enum Mode { case reverse, forward }
     @State private var mode: Mode = .reverse
-    @State private var recipeId: String = "country"
+    @State private var recipeId: String
     @State private var targetDay: String = "Sun"
     @State private var targetTime: String = "10:00 AM"
     @State private var kitchenTempC: Double = 22
     @State private var coldRetard: Bool = true
     @State private var useSidekick: Bool = true
+    @State private var isConfirming: Bool = false
+
+    init(state: AppState) {
+        self.state = state
+        // Seed from whichever recipe the user just opened. AppShell uses
+        // `.id(screenId)` so this init runs each time the user lands on the
+        // scheduler — "tap Hokkaido detail → tap Schedule a bake" now arrives
+        // with Hokkaido pre-selected instead of resetting to Country.
+        let preferred = state.recipes.contains(where: { $0.id == state.selectedRecipeId })
+            ? state.selectedRecipeId
+            : (state.recipes.first?.id ?? "country")
+        _recipeId = State(initialValue: preferred)
+    }
 
     private let days = ["Sat", "Sun", "Mon"]
     private let times = ["7:00 AM", "10:00 AM", "Noon", "5:00 PM"]
@@ -239,10 +252,12 @@ struct SchedulerScreen: View {
                             .font(Typography.ui(12)).foregroundStyle(Theme.slate700)
                         Spacer()
                         Button {
-                            state.goTo(.activeBake)
+                            confirmAndStart(schedule: schedule)
                         } label: {
                             Label("Confirm & start", systemImage: "play.fill")
-                        }.ccPrimary()
+                        }
+                        .ccPrimary()
+                        .disabled(isConfirming)
                     }
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
@@ -279,6 +294,29 @@ struct SchedulerScreen: View {
                 }
             }
         }
+    }
+
+    /// Prompt for notification permission first so the system alert anchors
+    /// to the user's tap (not the next screen), then create the ActiveBake
+    /// and navigate. Subsequent confirms are instant — the prompt is a
+    /// no-op once authorization is already determined.
+    private func confirmAndStart(schedule: Schedule) {
+        guard let recipe, !isConfirming else { return }
+        isConfirming = true
+        let starterId = defaultStarterId(for: recipe)
+        Task { @MainActor in
+            await state.requestNotificationPermission()
+            state.startBake(from: schedule,
+                            recipe: recipe,
+                            starterId: starterId)
+            isConfirming = false
+        }
+    }
+
+    /// Sourdough bakes default to the user's first starter; other bread types
+    /// don't carry one. The recipe editor (Stage 4) will let users pick.
+    private func defaultStarterId(for recipe: Recipe) -> String? {
+        recipe.breadType == .sourdough ? state.starters.first?.id : nil
     }
 
     private func relativeOffset(_ d: Date, from origin: Date) -> String {

@@ -48,6 +48,7 @@ struct AppShell: View {
                         case .starter:       StarterScreen(state: state)
                         case .diagnose:      DiagnosticScreen(state: state)
                         case .journal:       JournalScreen(state: state)
+                        case .settings:      SettingsScreen(state: state)
                         }
                     }
                     .padding(.horizontal, 32)
@@ -74,6 +75,7 @@ struct AppShell: View {
         case .starter:     return "starter"
         case .diagnose:    return "diagnose"
         case .journal:     return "journal"
+        case .settings:    return "settings"
         }
     }
 }
@@ -94,12 +96,14 @@ struct Sidebar: View {
     var items: [Item] {
         [
             .init(id: "home",      label: "Today",        icon: .home,    screen: .home),
-            .init(id: "bake",      label: "Active bake",  icon: .play,    screen: .activeBake, liveBadge: true),
+            .init(id: "bake",      label: "Active bake",  icon: .play,    screen: .activeBake,
+                  liveBadge: state.activeBake != nil),
             .init(id: "library",   label: "Recipes",      icon: .book,    screen: .library),
             .init(id: "scheduler", label: "Scheduler",    icon: .clock,   screen: .scheduler),
             .init(id: "starter",   label: "Starter",      icon: .starter, screen: .starter),
             .init(id: "diagnose",  label: "Diagnose",     icon: .camera,  screen: .diagnose),
             .init(id: "journal",   label: "Journal",      icon: .graph,   screen: .journal),
+            .init(id: "settings",  label: "Settings",     icon: .settings, screen: .settings),
         ]
     }
 
@@ -120,7 +124,7 @@ struct Sidebar: View {
                     Text("CrumbCoach")
                         .font(Typography.display(16, weight: .semibold))
                         .foregroundStyle(Theme.slate900)
-                    Text("\(state.userName)'s kitchen")
+                    Text(kitchenLabel)
                         .font(Typography.ui(10.5))
                         .foregroundStyle(Theme.slate500)
                 }
@@ -151,6 +155,11 @@ struct Sidebar: View {
         case .recipe: return item.id == "library"
         default:      return item.screen == state.screen
         }
+    }
+
+    private var kitchenLabel: String {
+        let trimmed = state.userName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "Your kitchen" : "\(trimmed)'s kitchen"
     }
 }
 
@@ -239,10 +248,16 @@ struct AppHeader: View {
 
     private var titles: (kicker: String, title: String) {
         switch state.screen {
-        case .home:        return ("Today",       "\(state.greeting), \(state.userName)")
+        case .home:
+            let displayName = state.userName.trimmingCharacters(in: .whitespaces)
+            let greeting = state.greeting
+            return ("Today", displayName.isEmpty ? greeting : "\(greeting), \(displayName)")
         case .activeBake:
-            let recipe = state.recipe(state.activeBake?.recipeId ?? "country")
-            return ("Active bake", "\(recipe?.title ?? "Bake") · in progress")
+            if let bake = state.activeBake, let recipe = state.recipe(bake.recipeId) {
+                let suffix = bake.isComplete ? "ready to log" : "in progress"
+                return ("Active bake", "\(recipe.title) · \(suffix)")
+            }
+            return ("Active bake", "No bake in progress")
         case .library:     return ("Library",     "Your recipes")
         case .recipe(let id):
             let r = state.recipe(id)
@@ -251,6 +266,7 @@ struct AppHeader: View {
         case .starter:     return ("Starter",     "Sourdough starters")
         case .diagnose:    return ("Diagnose",    "Crumb diagnostic")
         case .journal:     return ("Journal",     "Bake history & insights")
+        case .settings:    return ("Settings",    "Your CrumbCoach")
         }
     }
 

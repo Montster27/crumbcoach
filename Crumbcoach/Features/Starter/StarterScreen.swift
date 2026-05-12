@@ -5,8 +5,16 @@ import SwiftUI
 
 struct StarterScreen: View {
     var state: AppState
-    @State private var selectedId: String = "ruby"
+    @State private var selectedId: String
     @State private var range: String = "12h"
+    @State private var photoPickerOpen = false
+
+    init(state: AppState) {
+        self.state = state
+        // Default to the first available starter rather than hard-coding "ruby"
+        // — after onboarding the user's data may not include the demo starter.
+        _selectedId = State(initialValue: state.starters.first?.id ?? "")
+    }
 
     var selected: Starter? { state.starter(selectedId) }
 
@@ -28,13 +36,16 @@ struct StarterScreen: View {
 
                     // Side stack
                     VStack(spacing: 16) {
-                        aiCheckCard
+                        aiCheckCard(starter: s)
                         sidekickCard
                         feedingLogCard(starter: s)
                     }
                     .frame(width: 360)
                 }
             }
+        }
+        .photoPicker(isPresented: $photoPickerOpen) { image in
+            state.setStarterPhoto(image, starterId: selectedId)
         }
     }
 
@@ -110,21 +121,35 @@ struct StarterScreen: View {
 
     // MARK: AI starter check card
 
-    private var aiCheckCard: some View {
-        SurfaceCard(padding: EdgeInsets()) {
+    private func aiCheckCard(starter: Starter) -> some View {
+        let timeLabel = starter.lastPhotoTime ?? "6:14 PM today"
+        return SurfaceCard(padding: EdgeInsets()) {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
-                    BreadPhoto(assetName: "starter", kind: .starter, height: 130)
+                    BreadPhoto(assetName: starter.lastPhoto ?? "starter",
+                               kind: .starter, height: 130)
                     LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
                         .frame(height: 130)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Photo · 6:14 PM today").font(Typography.ui(11)).foregroundStyle(.white.opacity(0.8))
+                        Text("Photo · \(timeLabel)").font(Typography.ui(11)).foregroundStyle(.white.opacity(0.8))
                         Text("Surface starting to recede")
                             .font(Typography.display(17, weight: .medium))
                             .foregroundStyle(.white)
                     }
                     .padding(.horizontal, 14)
                     .padding(.bottom, 12)
+
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Button(action: { photoPickerOpen = true }) {
+                                Label("Add photo", systemImage: "camera")
+                            }
+                            .buttonStyle(BlurChipStarter())
+                        }
+                        Spacer()
+                    }
+                    .padding(10)
                 }
                 .frame(height: 130)
                 .clipped()
@@ -315,6 +340,21 @@ private struct RiseChart: View {
                     .position(x: w - 24, y: 14)
             }
         }
+    }
+}
+
+// MARK: - Translucent chip used over the starter photo
+
+private struct BlurChipStarter: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Typography.ui(12, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().fill(Color.black.opacity(0.4)).blendMode(.multiply))
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
     }
 }
 

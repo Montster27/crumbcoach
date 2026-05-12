@@ -48,6 +48,9 @@ targets:
           - 2
         UIRequiredDeviceCapabilities:
           - arm64
+        NSCameraUsageDescription: "Photograph your crumb, dough, and starter so CrumbCoach can analyze and log them."
+        NSPhotoLibraryUsageDescription: "Attach photos from your library to bakes and diagnostics."
+        NSUserNotificationsUsageDescription: "Remind you when each bake step is due — folds, shaping, baking."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crumbcoach.app

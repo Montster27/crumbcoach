@@ -13,6 +13,8 @@ struct DiagnosticScreen: View {
     @State private var diagState: DiagState = .result   // start in the result view for showcase
     @State private var verdict: Verdict? = nil
     @State private var bakeChoice: String = "current"
+    @State private var currentPhoto: String? = nil       // disk filename or bundled asset
+    @State private var photoPickerOpen = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
@@ -35,6 +37,20 @@ struct DiagnosticScreen: View {
             }
             .frame(width: 420)
         }
+        .photoPicker(isPresented: $photoPickerOpen) { image in
+            let filename = state.persistence.savePhoto(image)
+            currentPhoto = filename
+            startAnalysis()
+        }
+        .onAppear {
+            // Consume a photo handed off from another screen (Home's "Take
+            // photo" button). One-shot — clear after consuming.
+            if let pending = state.pendingDiagnosticPhoto {
+                currentPhoto = pending
+                state.pendingDiagnosticPhoto = nil
+                startAnalysis()
+            }
+        }
     }
 
     // MARK: Photo panel
@@ -43,7 +59,7 @@ struct DiagnosticScreen: View {
         ZStack {
             // The photo and the annotation overlay both fill this 4:3 ZStack,
             // so SVG-style fractional positions land in the right pixels.
-            BreadPhoto(assetName: "crumb_dense", kind: .crumb, height: 480)
+            BreadPhoto(assetName: currentPhoto ?? "crumb_dense", kind: .crumb, height: 480)
 
             if diagState == .result {
                 AnnotationOverlay()
@@ -55,7 +71,7 @@ struct DiagnosticScreen: View {
                     topLabel
                     Spacer()
                     if diagState == .result {
-                        Button(action: { reset() }) {
+                        Button(action: { photoPickerOpen = true }) {
                             Label("New photo", systemImage: "camera")
                         }
                         .buttonStyle(BlurChip())
@@ -91,7 +107,7 @@ struct DiagnosticScreen: View {
         ZStack {
             Color.black.opacity(0.45)
             VStack(spacing: 16) {
-                Button(action: { startAnalysis() }) {
+                Button(action: { photoPickerOpen = true }) {
                     Circle().fill(.white).frame(width: 88, height: 88)
                         .overlay(CCIconView(icon: .camera, size: 36, color: Theme.primary))
                         .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 6))
@@ -408,6 +424,7 @@ struct DiagnosticScreen: View {
     private func reset() {
         diagState = .idle
         verdict = nil
+        currentPhoto = nil
     }
 
     private func startAnalysis() {

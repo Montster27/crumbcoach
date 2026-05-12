@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // Local persistence via Codable JSON in Application Support.
 //
@@ -10,11 +11,16 @@ import Foundation
 //
 // File location: <Application Support>/Crumbcoach/state.json
 // Atomic writes via `.atomic`; debounced via AppState.saveSoon().
+//
+// Photos go to a sibling `photos/` directory as JPEGs — embedding base64 in
+// the JSON would balloon the pretty-printed file beyond reason, and writes
+// would re-encode the entire blob on every save.
 
 final class PersistenceController {
     static let shared = PersistenceController()
 
     private let url: URL
+    let photosDirectory: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
@@ -30,6 +36,12 @@ final class PersistenceController {
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         self.url = dir.appendingPathComponent(filename)
+
+        let photos = dir.appendingPathComponent("photos", isDirectory: true)
+        if !fm.fileExists(atPath: photos.path) {
+            try? fm.createDirectory(at: photos, withIntermediateDirectories: true)
+        }
+        self.photosDirectory = photos
 
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -72,4 +84,31 @@ final class PersistenceController {
     }
 
     var fileURL: URL { url }
+
+    // MARK: - Photo storage
+
+    /// Encode the image as JPEG and write it to `photos/<uuid>.jpg`. Returns
+    /// the relative filename to store in `BakePhoto.assetName` — callers
+    /// resolve it back through `loadPhoto(named:)` or `photoURL(for:)`.
+    func savePhoto(_ image: UIImage, quality: CGFloat = 0.85) -> String {
+        let filename = "\(UUID().uuidString).jpg"
+        let dest = photosDirectory.appendingPathComponent(filename)
+        if let data = image.jpegData(compressionQuality: quality) {
+            try? data.write(to: dest, options: [.atomic])
+        }
+        return filename
+    }
+
+    /// Resolve a stored photo filename back to a `UIImage`. Returns nil if
+    /// the name doesn't refer to a file we wrote (e.g. a bundled asset name
+    /// from the seed data).
+    func loadPhoto(named filename: String) -> UIImage? {
+        let url = photosDirectory.appendingPathComponent(filename)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    func photoURL(for filename: String) -> URL {
+        photosDirectory.appendingPathComponent(filename)
+    }
 }
