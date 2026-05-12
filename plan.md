@@ -1970,6 +1970,109 @@ Add:
 
 ---
 
+## Pre-1.0 stub inventory (post-Stage-6 audit)
+
+Found by a code-review pass after Phase B landed. Stage 6's "stub-
+button cleanup" caught the empty-closure cases; this list is the
+gap — copy and state that *looks* real but isn't. None of these
+block compilation, but several read as outright lies to the user.
+Worth working through before the TestFlight beta widens.
+
+### User-visible hardcoded copy
+
+- [ ] **HomeScreen StarterCard "Feed at 8:14 PM →"**
+  ([HomeScreen.swift:191](Crumbcoach/Features/Home/HomeScreen.swift:191))
+  — fixed clock time regardless of selected starter's `nextFeed`.
+  Replace with `starter.nextFeed` or compute from last-fed + 4–6h.
+- [ ] **HomeScreen UpNextCard "Country Sourdough … at 4:14 PM"**
+  ([HomeScreen.swift:261](Crumbcoach/Features/Home/HomeScreen.swift:261)
+  / [:265](Crumbcoach/Features/Home/HomeScreen.swift:265))
+  — recipe title + levain-build time both hardcoded. Should derive
+  from the user's most-recently-baked or favorited recipe, and
+  compute the build time from the chosen target.
+- [ ] **HomeScreen DiagnosePromptCard "your last 6 Country
+  Sourdoughs"** ([HomeScreen.swift:297](Crumbcoach/Features/Home/HomeScreen.swift:297))
+  — hardcoded recipe name in promo copy. Should reflect the user's
+  actual most-baked recipe (or generic "recent bakes" when journal
+  is sparse).
+- [ ] **StarterScreen photo timestamp fallback "6:14 PM today"**
+  ([StarterScreen.swift:130](Crumbcoach/Features/Starter/StarterScreen.swift:130))
+  — when `starter.lastPhotoTime` is nil. Replace with "No photo
+  yet" or hide the timestamp line entirely.
+- [ ] **ActiveBakeScreen proof-oven schedule reflow line**
+  ([ActiveBakeScreen.swift:328](Crumbcoach/Features/ActiveBake/ActiveBakeScreen.swift:328))
+  — "Schedule reflowed: next fold in 9m (was 14m), bake out 5:47
+  AM (was 7:38 AM)" is a static demo string. Should derive from
+  the Stage-8 rebalanced schedule.
+
+### Sidekick UI (mocked until Stage 25)
+
+The Sourdough Sidekick BLE integration is blocked on a partnership
+(Phase D Stage 25). The UI surfaces below render as if the device
+is paired and reporting; until the integration lands they're
+narrative theater.
+
+- [ ] **StarterScreen sidekickCard**
+  ([StarterScreen.swift:193–208](Crumbcoach/Features/Starter/StarterScreen.swift:193))
+  — Connected pill, "Counter-active" preset, "Last feed at 8:14 AM
+  · jar temp 23.1°C · 152% peak observed" all hardcoded with no
+  data path behind them. Hide behind a feature flag (`Stage25Enabled`
+  / `state.sidekickPaired`) and surface a "Pair a Sourdough Sidekick
+  (coming soon)" stub instead, or remove from v1.
+- [ ] **SchedulerScreen sidekickLoopCard**
+  ([SchedulerScreen.swift:338–349](Crumbcoach/Features/Scheduler/SchedulerScreen.swift:338))
+  — "Ruby will be fed 1:5:5 at 2:14 PM to peak 200g of 100%
+  hydration levain at mix time Sat 8:14 PM" — single static
+  paragraph. The `useSidekick` toggle in the conditions card gates
+  visibility but the copy never adapts. Same fix as above.
+
+### Interaction lies
+
+- [ ] **HomeScreen UpNextCard time chips**
+  ([HomeScreen.swift:237](Crumbcoach/Features/Home/HomeScreen.swift:237))
+  — `@State selectedTime` mutated by TagPills (line 255), but the
+  paragraph below (lines 259–267) is fully hardcoded and never
+  reads it. Taps register, nothing changes on screen. Either wire
+  the chips into the displayed schedule preview or remove them.
+
+### Recently spotted from review
+
+(Carried in from the post-eb606ff code-review pass — many already
+closed by `1c0a4d8`. Surviving worth-addressing items kept here for
+visibility.)
+
+- [ ] `RecipeImporter.categoryGuess` operator-precedence bug —
+  "vegetable oil" / "canola oil" tag as `.liquid` instead of
+  `.fat`. Parenthesize the liquid chain.
+  ([RecipeImporter.swift:297](Crumbcoach/Shared/RecipeImporter.swift:297))
+- [ ] `cloudSyncEnabled` round-trips through the cloud JSON, so
+  opt-out on one device gets silently re-enabled by a pull from a
+  still-enabled device.
+  ([AppState.swift](Crumbcoach/Data/AppState.swift))
+  Move opt-in to UserDefaults or skip the field in `reload(from:)`.
+- [ ] `LiveActivityManager` not `@MainActor`-isolated.
+  ([LiveActivityManager.swift](Crumbcoach/Shared/LiveActivityManager.swift))
+  Today's callers are all main; Swift 6 strict concurrency will
+  flag this.
+- [ ] Share extension accepts any URL the system hands it; non-
+  `http(s)` schemes pass through and fail later in the importer.
+  ([ShareViewController.swift:52](../CrumbcoachShareExtension/ShareViewController.swift:52))
+  Validate `url.scheme` before encoding the deep link.
+- [ ] `cloudSyncStatusLine` shows `Date()` (now) as "Last synced"
+  after a pull, hiding the cloud file's real mtime.
+  ([SettingsScreen.swift](Crumbcoach/Features/Settings/SettingsScreen.swift))
+
+### Confirmed clean
+
+- No TODO / FIXME / XXX / HACK comments anywhere in the Swift
+  sources.
+- No empty-closure buttons (Stage 6's audit survives).
+- No broken image references.
+- Sample data correctly scoped behind "Load demo data" + first-
+  launch seeding paths.
+
+---
+
 ## Working on a stage
 
 1. Open this file. Read the preamble.

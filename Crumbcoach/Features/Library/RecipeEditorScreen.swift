@@ -21,6 +21,13 @@ struct RecipeEditorScreen: View {
     @State private var importWarnings: [String] = []
     @State private var importError: String? = nil
     @State private var showOverwriteConfirm: Bool = false
+    /// True once we've kicked off the first auto-import on appear. When the
+    /// user opens a fresh editor via "Paste URL" or the share extension,
+    /// the URL field is pre-filled — auto-firing the import matches what
+    /// "paste a recipe URL" implies, and avoids the trap where saving
+    /// without tapping Import persisted the `blank()` sourdough skeleton
+    /// instead of the URL's actual recipe.
+    @State private var didAutoImport: Bool = false
 
     init(state: AppState,
          editingRecipeId: String?,
@@ -141,6 +148,19 @@ struct RecipeEditorScreen: View {
                 } else {
                     state.photoErrorMessage = "Couldn't save that photo. Try again — your iPad may be low on storage."
                 }
+            }
+            .task {
+                // First-appear auto-import. The user reached this editor by
+                // pasting a URL or sharing from Safari; firing the import
+                // matches what those entry points imply. Gated to new
+                // recipes only — editing an existing recipe with a source
+                // URL shouldn't silently overwrite the user's data.
+                guard !didAutoImport,
+                      editingRecipeId == nil,
+                      !sourceURL.trimmingCharacters(in: .whitespaces).isEmpty
+                else { return }
+                didAutoImport = true
+                await runImport()
             }
             .navigationTitle(editingRecipeId == nil ? "New recipe" : "Edit recipe")
             .navigationBarTitleDisplayMode(.inline)
