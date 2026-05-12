@@ -35,7 +35,12 @@ targets:
         UILaunchScreen:
           UIColorName: ""
           UIImageName: ""
-        UIRequiresFullScreen: false
+        # Opt out of iPad multitasking (Split View / Slide Over / Stage
+        # Manager). The layout was designed for a single 1440×1024 canvas;
+        # supporting arbitrary side-by-side widths is real work. With
+        # UIRequiresFullScreen = true, restricting to landscape orientations
+        # is allowed.
+        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
