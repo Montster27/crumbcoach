@@ -1941,7 +1941,11 @@ enum AIRecipeAssist {
 
 ### Stage 17.5a — completion notes
 
-Lookup-table layer landed. `Crumbcoach/Shared/IngredientWeightTable.swift`
+Two improvements bundled here — the volume-to-grams table AND
+instruction-time parsing. Together they close most of the "fill it
+in manually" gaps that the JSON-LD importer left behind.
+
+**Volume-to-grams lookup.** `Crumbcoach/Shared/IngredientWeightTable.swift`
 ships ~35 entries covering flours, liquids, salts, leavens,
 sweeteners, fats, and a few common misc rows (cocoa powder, dry
 milk). Each entry maps `(keyword, unit) → grams per unit`. Numbers
@@ -1975,6 +1979,31 @@ Warnings shape changed: table-sourced rows surface as
 standard weight for instant yeast — verify before baking."` so
 the user sees exactly which rows are estimates and what the table
 matched against.
+
+**Stage duration extraction.** Real-world test against King Arthur
+exposed a parallel gap: even when JSON-LD instructions contain
+explicit times ("Bake for 20 minutes", "Let rise for 60 to 90
+minutes"), the importer was emitting every stage at `0 min` because
+duration parsing didn't exist. New `parseDurationMinutes(from:)`
+tries three regex patterns in priority order:
+
+1. **Compound** — `"1 hour 30 minutes"` → 90.
+2. **Range** — `"60 to 90 minutes"` → 60 (lower bound; bakers want
+   the timer to fire on the early end so they can check). Hyphen,
+   en-dash, em-dash, and `"to"` all count as range separators.
+3. **Single** — `"20 minutes"`, `"1.5 hours"`, `"1 hr"` → as-is.
+
+Plus a special case: `"overnight"` → 480 min (8h, conservative).
+Returns nil for instructions like `"Bake until golden brown"` —
+no number to anchor on, the user fills in.
+
+Warnings differentiate three cases now:
+- Zero stages parsed: "No instructions were detected — add stages
+  by hand."
+- All stages got 0 min: "Stage durations weren't recognized in
+  the source — fill them in."
+- Partial: "3 of 5 stages had no explicit duration — fill those
+  in." (so the user knows which fraction needs attention)
 
 Known gaps deliberately left for later:
 

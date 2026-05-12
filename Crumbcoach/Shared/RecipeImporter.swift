@@ -173,8 +173,15 @@ enum RecipeImporter {
         let stages = mapStages(from: instructionStrings)
         if stages.isEmpty {
             warnings.append("No instructions were detected — add stages by hand.")
-        } else if stages.allSatisfy({ $0.durationMin == 0 }) {
-            warnings.append("Stage durations were not present in the source — fill them in.")
+        } else {
+            // Differentiate "nothing parsed" vs "some parsed, some didn't"
+            // so the warning tells the user exactly what they need to fix.
+            let unfilled = stages.filter { $0.durationMin == 0 }.count
+            if unfilled == stages.count {
+                warnings.append("Stage durations weren't recognized in the source — fill them in.")
+            } else if unfilled > 0 {
+                warnings.append("\(unfilled) of \(stages.count) stages had no explicit duration — fill those in.")
+            }
         }
 
         let sourceName = sourceURL.host?
@@ -517,18 +524,91 @@ enum RecipeImporter {
     }
 
     /// Map each instruction text to a `Stage` via keyword detection. The
-    /// instruction text becomes the stage note; duration stays at 0 so the
-    /// user fills it in (and so we don't lie about ferment times).
+    /// instruction text becomes the stage note; duration is best-effort
+    /// extracted via `parseDurationMinutes` (range → lower bound, compound
+    /// "1 hour 30 minutes" supported, "overnight" → 8h). Duration stays at
+    /// 0 when the instruction doesn't carry a recognizable time — e.g.
+    /// "Bake until golden brown" — so we don't invent ferment times.
     static func mapStages(from instructions: [String]) -> [Stage] {
         instructions.map { text in
-            let kind = stageKindGuess(for: text)
-            return Stage(
-                kind: kind,
-                durationMin: 0,
+            Stage(
+                kind: stageKindGuess(for: text),
+                durationMin: parseDurationMinutes(from: text) ?? 0,
                 temperatureC: nil,
                 note: text
             )
         }
+    }
+
+    // MARK: - Stage duration parsing
+
+    private static let durationCompoundRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"(\d+)\s*(?:hour|hr)s?\s*(?:and\s*)?(\d+)\s*(?:minute|min)s?\b"#,
+        options: [.caseInsensitive]
+    )
+
+    private static let durationRangeRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"(\d+(?:\.\d+)?)\s*(?:to|-|–|—)\s*(\d+(?:\.\d+)?)\s*(hour|hr|minute|min)s?\b"#,
+        options: [.caseInsensitive]
+    )
+
+    private static let durationSingleRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"(\d+(?:\.\d+)?)\s*(hour|hr|minute|min)s?\b"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Pull the first explicit duration out of an instruction string. Three
+    /// patterns tried in priority order:
+    ///
+    /// 1. Compound: `"1 hour 30 minutes"` → 90.
+    /// 2. Range: `"60 to 90 minutes"` → 60 (lower bound — bakers expect
+    ///    the timer to fire early so they can check).
+    /// 3. Single: `"20 minutes"`, `"1.5 hours"` → 20 / 90.
+    ///
+    /// Plus a special case: `"overnight"` → 480 (8 hours, conservative).
+    /// Returns nil when no recognizable time appears in the text (e.g.
+    /// `"Bake until golden brown"` — the user fills it in).
+    static func parseDurationMinutes(from text: String) -> Int? {
+        let ns = text as NSString
+        let range = NSRange(location: 0, length: ns.length)
+
+        // Pattern 1: compound "X hours Y minutes" (must come before single
+        // so we don't lose the minutes half).
+        if let regex = durationCompoundRegex,
+           let m = regex.firstMatch(in: text, range: range),
+           m.numberOfRanges == 3,
+           let h = Int(ns.substring(with: m.range(at: 1))),
+           let mins = Int(ns.substring(with: m.range(at: 2))) {
+            return h * 60 + mins
+        }
+
+        // Pattern 2: range "X to Y units". Lower bound wins.
+        if let regex = durationRangeRegex,
+           let m = regex.firstMatch(in: text, range: range),
+           m.numberOfRanges == 4,
+           let low = Double(ns.substring(with: m.range(at: 1))) {
+            let unit = ns.substring(with: m.range(at: 3)).lowercased()
+            let perUnit: Double = unit.hasPrefix("h") ? 60 : 1
+            return Int((low * perUnit).rounded())
+        }
+
+        // Pattern 3: single "X units".
+        if let regex = durationSingleRegex,
+           let m = regex.firstMatch(in: text, range: range),
+           m.numberOfRanges == 3,
+           let value = Double(ns.substring(with: m.range(at: 1))) {
+            let unit = ns.substring(with: m.range(at: 2)).lowercased()
+            let perUnit: Double = unit.hasPrefix("h") ? 60 : 1
+            return Int((value * perUnit).rounded())
+        }
+
+        // Special case: "overnight" / "overnight in the fridge" → 8h.
+        // Conservative — many cold retards run 12h+ but starting timer at
+        // 8 lets the baker hit it on the early end.
+        if text.range(of: "overnight", options: .caseInsensitive) != nil {
+            return 8 * 60
+        }
+        return nil
     }
 
     private static func stageKindGuess(for text: String) -> StageKind {
