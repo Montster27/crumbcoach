@@ -9,5 +9,6 @@ import SwiftUI
 struct CrumbcoachWidgetsBundle: WidgetBundle {
     var body: some Widget {
         ActiveBakeLiveActivity()
+        ActiveBakeWidget()
     }
 }

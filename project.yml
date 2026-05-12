@@ -88,16 +88,24 @@ targets:
           - CloudDocuments
         com.apple.developer.ubiquity-container-identifiers:
           - iCloud.com.monty.crumbcoach.app
+        # Stage 19 — App Group shared between the main app and the widget
+        # extension so widgets can read the active-bake snapshot the main
+        # app writes on every `activeBake` mutation.
+        com.apple.security.application-groups:
+          - group.com.monty.crumbcoach.shared
   CrumbcoachWidgets:
-    # Stage 16 — Live Activity widget extension. Renders the lock-screen +
-    # Dynamic Island UI for an in-progress bake. The ActiveBakeAttributes
-    # type is shared with the main app so the contract stays single-source.
+    # Stage 16 — Live Activity. Stage 19 — Home Screen + Lock Screen
+    # widgets reading from the App Group snapshot. ActiveBakeAttributes
+    # and WidgetSnapshot are shared with the main app via the `sources`
+    # paths below.
     type: app-extension
     platform: iOS
     deploymentTarget: "17.0"
     sources:
       - path: CrumbcoachWidgets
       - path: Crumbcoach/Shared/ActiveBakeAttributes.swift
+      - path: Crumbcoach/Shared/WidgetSnapshot.swift
+      - path: Crumbcoach/Shared/SharedContainer.swift
     info:
       path: CrumbcoachWidgets/Info.plist
       properties:
@@ -105,12 +113,20 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: CrumbcoachWidgets/CrumbcoachWidgets.entitlements
+      properties:
+        # Same App Group as the main app — widgets read the snapshot the
+        # main app writes here.
+        com.apple.security.application-groups:
+          - group.com.monty.crumbcoach.shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.monty.crumbcoach.app.widgets
         TARGETED_DEVICE_FAMILY: "2"
         SKIP_INSTALL: YES
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: NO
+        CODE_SIGN_ENTITLEMENTS: CrumbcoachWidgets/CrumbcoachWidgets.entitlements
   CrumbcoachShareExtension:
     # Stage 18 — Safari share → CrumbCoach. Reads the shared URL, encodes
     # it as `crumbcoach://import?url=…`, and opens the main app via the

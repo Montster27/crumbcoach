@@ -2395,6 +2395,100 @@ Home Screen + Lock Screen widgets for active bake / next action:
 
 Lock Screen widget pairs naturally with the Live Activity from Stage 16.
 
+### Stage 19 — completion notes
+
+Home Screen widget (three sizes) + two Lock Screen widget families
+landed. Reads from the App Group snapshot the main app writes on
+every `activeBake` mutation. Builds on Stage 16's widget extension
+target — no new target needed, just new sources + the App Group
+plumbing.
+
+**App Group wiring:**
+
+- New entitlement `group.com.monty.crumbcoach.shared` added to both
+  the main app's `Crumbcoach.entitlements` (via `project.yml`'s
+  `entitlements.properties`) and a new
+  `CrumbcoachWidgets/CrumbcoachWidgets.entitlements`. Same group id
+  on both sides is the contract.
+- `Crumbcoach/Shared/SharedContainer.swift` — helper that resolves
+  `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`
+  and exposes `writeWidgetSnapshot(_:)` / `readWidgetSnapshot()`.
+  Gracefully no-ops when the entitlement isn't reachable (running
+  without provisioning, free dev team, etc.) so builds still work.
+
+**Wire format:**
+
+- `Crumbcoach/Shared/WidgetSnapshot.swift` — `Codable` struct shared
+  between targets via `project.yml` source paths. Carries:
+  - `generatedAt: Date` — staleness hint for widgets.
+  - `activeBake: ActiveBakeSummary?` — nil when no bake; the
+    summary holds recipe title, started/bake-out times, current
+    stage name + index + count, folds done/total, next-action
+    timestamp + label, isComplete flag.
+- Snapshot is intentionally small (no photos, no full recipe
+  payload) so widget reads stay cheap.
+
+**Main-app integration:**
+
+- `AppState` gained `updateWidgetSnapshot()` + `makeWidgetBakeSummary()`.
+  Snapshot writes happen at the tail of `saveSoon`'s Task body and
+  in `saveNow`, so every state mutation that runs through the save
+  loop also refreshes the widget. `WidgetCenter.shared.reloadAllTimelines()`
+  nudges iOS to re-render within a few seconds.
+- The "next action" derivation prefers the Stage-8 rebalanced
+  `bake.schedule` when present (picks the first upcoming non-
+  done/non-skipped step), falls back to `bake.bakeOutAt` for the
+  last stage or pre-Stage-8 bakes.
+
+**Widget views** (`CrumbcoachWidgets/ActiveBakeWidget.swift`):
+
+- `BakeProvider: TimelineProvider` — single-entry timeline with a
+  15-minute safety refresh. The actual countdown is driven by
+  `Text(date, style: .timer)` so SwiftUI re-renders the time
+  without rebuilding entries.
+- `placeholder` + `getSnapshot` use a `WidgetSnapshot.preview`
+  static so the widget gallery has a plausible-looking preview
+  before the user has an active bake.
+- Five families:
+  - `systemSmall` — recipe title, stage name, next-action label,
+    live countdown.
+  - `systemMedium` — same + `FoldRing` (orange progress ring with
+    `done/total` center) + bake-out time on the right.
+  - `systemLarge` — header + divider + big stage + fold ring +
+    "stage X of Y" caption + tall countdown at the bottom.
+  - `accessoryRectangular` (Lock Screen) — three-line summary.
+  - `accessoryInline` (Lock Screen) — single-line `flame · stage ·
+    next-action`.
+- Empty state per-family: small/medium/large show a flame icon +
+  "No active bake — start one on the Scheduler"; rectangular shows
+  "CrumbCoach · No active bake"; inline shows
+  `flame No active bake`.
+- `FoldRing` is a small `ZStack` of two stroked Circles + center
+  text. Lives only in the widget file since the design-system
+  `RingProgress` isn't available across the target boundary
+  (widget extension can't see the main app's bundle resources).
+
+Known gaps deliberately left for later:
+
+- Widget UI uses system fonts and a fixed orange accent, not the
+  main app's Geist + `Theme.primary`. The widget extension can't
+  read main-app bundle resources at render time; pulling Theme
+  into a shared Swift package is overkill for v1.
+- `accessoryCircular` (Lock Screen + watch-face)
+  intentionally omitted — a 1-line fold counter is the obvious
+  shape but `2/4` reads cryptic without context. Worth adding
+  when Stage 21 (Watch companion) lands and the complication has
+  a tap target.
+- No "tap widget → deep-link into bake screen" yet. WidgetURL
+  + onOpenURL would route `crumbcoach://activeBake` to the
+  existing scene. Trivial to add; left for follow-up polish.
+- 15-minute timeline-refresh safety net is conservative. For
+  bakes mostly waiting on long ferments this is fine; for the
+  bulk-fold cadence the main app's `WidgetCenter.reloadAllTimelines()`
+  on every fold tick is what keeps the widget honest. If the
+  main app is killed mid-bake, the widget may lag up to 15 min
+  before the countdown re-anchors.
+
 ### Stage 20 — HomeKit / Matter kitchen-temperature integration
 
 Read real kitchen temperature from a HomeKit accessory; replace the
@@ -2663,7 +2757,7 @@ visibility.)
 
 | Stage | Status   | Owner | Notes |
 |-------|----------|-------|-------|
-| 19    | not started |    | iOS widgets (Home Screen + Lock Screen). |
+| 19    | done     |       | iOS widgets (Home Screen + Lock Screen). See "Stage 19 — completion notes". |
 | 20    | not started |    | HomeKit / Matter kitchen-temperature integration. |
 | 21    | not started |    | Apple Watch companion. |
 | 22    | not started |    | Localization — first non-English language. |

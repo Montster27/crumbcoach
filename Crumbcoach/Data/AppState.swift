@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UserNotifications
+import WidgetKit
 
 // App-wide observable state. Loads from / writes to PersistenceController on
 // every meaningful mutation, debounced 1 second so slider drags don't thrash
@@ -173,6 +174,9 @@ final class AppState {
                 let url = self.persistence.fileURL
                 Task { await CloudSyncManager.shared.push(localStateURL: url) }
             }
+            // Refresh the Home Screen / Lock Screen widget snapshot. Cheap
+            // no-op when the App Group entitlement isn't reachable.
+            Task { @MainActor in self.updateWidgetSnapshot() }
         }
     }
 
@@ -201,6 +205,7 @@ final class AppState {
             let url = persistence.fileURL
             Task { await CloudSyncManager.shared.push(localStateURL: url) }
         }
+        updateWidgetSnapshot()
     }
 
     /// Replace everything with the Marisol-style demo (named starters, sample
@@ -473,6 +478,73 @@ final class AppState {
         } else if activeBake != nil {
             pushLiveActivityUpdate()
         }
+    }
+
+    // MARK: Widget snapshot
+
+    /// Compute the widget-facing snapshot from the current state and write
+    /// it to the App Group container, then ask WidgetKit to reload its
+    /// timelines so the Home Screen / Lock Screen widgets reflect the new
+    /// state within a few seconds. Cheap no-op when the App Group
+    /// entitlement isn't reachable.
+    private func updateWidgetSnapshot() {
+        let snapshot = WidgetSnapshot(
+            generatedAt: Date(),
+            activeBake: makeWidgetBakeSummary()
+        )
+        SharedContainer.writeWidgetSnapshot(snapshot)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Build the activity summary or return nil when there is no active
+    /// bake. Frozen at write time so the widget extension doesn't have to
+    /// re-derive anything from the recipe library.
+    private func makeWidgetBakeSummary() -> WidgetSnapshot.ActiveBakeSummary? {
+        guard let bake = activeBake, let recipe = recipe(bake.recipeId) else {
+            return nil
+        }
+        let stage = recipe.stages.indices.contains(bake.currentStageIndex)
+            ? recipe.stages[bake.currentStageIndex] : nil
+        let stageName = stage?.kind.rawValue ?? "—"
+
+        // Pick the next action timestamp + label. Prefer the rebalanced
+        // schedule (Stage 8) when present; fall back to bake-out for the
+        // last stage.
+        let now = Date()
+        let nextActionAt: Date
+        let nextActionLabel: String
+        if bake.isComplete {
+            nextActionAt = now
+            nextActionLabel = "Log this bake"
+        } else if let sched = bake.schedule {
+            let upcoming = sched.steps.first {
+                $0.status != .done && $0.status != .skipped && $0.start > now
+            }
+            if let upcoming, recipe.stages.indices.contains(upcoming.stageIndex) {
+                nextActionAt = upcoming.start
+                nextActionLabel = recipe.stages[upcoming.stageIndex].kind.rawValue
+            } else {
+                nextActionAt = bake.bakeOutAt
+                nextActionLabel = "Bake out"
+            }
+        } else {
+            nextActionAt = bake.bakeOutAt
+            nextActionLabel = "Bake out"
+        }
+
+        return WidgetSnapshot.ActiveBakeSummary(
+            recipeTitle: recipe.title,
+            startedAt: bake.startedAt,
+            bakeOutAt: bake.bakeOutAt,
+            stageName: stageName,
+            stageIndex: bake.currentStageIndex,
+            stageCount: recipe.stages.count,
+            foldsDone: bake.foldsDone,
+            totalFolds: bake.totalFolds,
+            nextActionAt: nextActionAt,
+            nextActionLabel: nextActionLabel,
+            isComplete: bake.isComplete
+        )
     }
 
     // MARK: Photos
