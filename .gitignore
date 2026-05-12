@@ -1,0 +1,33 @@
+## Build generated
+build/
+DerivedData/
+
+## Xcode personal user state
+**/xcuserdata/
+*.xcuserstate
+*.xcuserdatad
+
+## macOS
+.DS_Store
+
+## Swift Package Manager
+.swiftpm/
+.build/
+Package.resolved
+Packages/
+
+## Xcode workspace user-state
+*.xcworkspace/xcuserdata/
+
+## CocoaPods (in case)
+Pods/
+
+## fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+## IDE
+.idea/
+.vscode/
