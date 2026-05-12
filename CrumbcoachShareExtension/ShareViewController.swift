@@ -31,7 +31,10 @@ class ShareViewController: UIViewController {
 
     /// Walk the input items + attachments looking for the first URL-typed
     /// payload. Most Safari shares hand us a single URL item; some hand a
-    /// plain-text URL string, so we accept both.
+    /// plain-text URL string, so we accept both. Only http/https schemes
+    /// are forwarded — anything else (mailto:, ftp:, javascript:, custom
+    /// app schemes) would just fail in the importer and confuse the user,
+    /// so we drop it here and let the extension complete silently.
     private func extractURL() async -> URL? {
         guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
             return nil
@@ -41,7 +44,8 @@ class ShareViewController: UIViewController {
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     if let url = try? await provider.loadItem(
                         forTypeIdentifier: UTType.url.identifier
-                    ) as? URL {
+                    ) as? URL,
+                       isWebURL(url) {
                         return url
                     }
                 }
@@ -49,13 +53,19 @@ class ShareViewController: UIViewController {
                     if let raw = try? await provider.loadItem(
                         forTypeIdentifier: UTType.plainText.identifier
                     ) as? String,
-                       let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                       let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+                       isWebURL(url) {
                         return url
                     }
                 }
             }
         }
         return nil
+    }
+
+    private func isWebURL(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        return scheme == "http" || scheme == "https"
     }
 
     /// Hand the shared URL to the main app via the `crumbcoach://import`

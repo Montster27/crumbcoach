@@ -38,10 +38,12 @@ struct StarterScreen: View {
                             riseCard(starter: s)
                                 .frame(maxWidth: .infinity)
 
-                            // Side stack
+                            // Side stack. The Sidekick card is hidden in
+                            // v1 — Stage 25 (BLE integration, gated on a
+                            // FirstBuild partnership) reactivates it once
+                            // there's a real data path behind the values.
                             VStack(spacing: 16) {
                                 aiCheckCard(starter: s)
-                                sidekickCard
                                 feedingLogCard(starter: s)
                             }
                             .frame(width: 360)
@@ -127,7 +129,9 @@ struct StarterScreen: View {
     // MARK: AI starter check card
 
     private func aiCheckCard(starter: Starter) -> some View {
-        let timeLabel = starter.lastPhotoTime ?? "6:14 PM today"
+        // Drop the photo-time line entirely when the user hasn't actually
+        // taken one yet — the prior hardcoded fallback ("6:14 PM today")
+        // claimed a photo existed when none did.
         return SurfaceCard(padding: EdgeInsets()) {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack(alignment: .bottomLeading) {
@@ -136,8 +140,12 @@ struct StarterScreen: View {
                     LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
                         .frame(height: 130)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Photo · \(timeLabel)").font(Typography.ui(11)).foregroundStyle(.white.opacity(0.8))
-                        Text("Surface starting to recede")
+                        if let time = starter.lastPhotoTime {
+                            Text("Photo · \(time)")
+                                .font(Typography.ui(11))
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                        Text(starter.state)
                             .font(Typography.display(17, weight: .medium))
                             .foregroundStyle(.white)
                     }

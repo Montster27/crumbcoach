@@ -183,27 +183,35 @@ final class CloudSyncManager: ObservableObject {
         let next = Task { [weak self] in
             _ = await prior?.value
             guard let self else { return false }
-            let didPull = await Self.performPull(
+            let pulledMtime = await Self.performPull(
                 localStateURL: localStateURL,
                 cloudURL: cloudURL,
                 log: self.log
             )
-            if didPull {
-                await MainActor.run { self.status = .syncedAt(Date()) }
+            if let mtime = pulledMtime {
+                // Report the cloud file's authoring time, NOT now(). The
+                // user's two iPads should see the same "last synced"
+                // timestamp; otherwise they can't tell whether their
+                // data is drifting.
+                await MainActor.run { self.status = .syncedAt(mtime) }
+                return true
             }
-            return didPull
+            return false
         }
         pullTask = next
         return await next.value
     }
 
+    /// Returns the cloud file's mtime when a copy actually happened. Nil
+    /// when the local file was already current or the coordinator hit an
+    /// error.
     private static func performPull(localStateURL: URL,
                                      cloudURL: URL,
-                                     log: Logger) async -> Bool {
-        await Task.detached(priority: .utility) { () -> Bool in
+                                     log: Logger) async -> Date? {
+        await Task.detached(priority: .utility) { () -> Date? in
             let coordinator = NSFileCoordinator(filePresenter: nil)
             var coordinationError: NSError?
-            var didCopy = false
+            var pulledMtime: Date?
             coordinator.coordinate(readingItemAt: cloudURL,
                                     options: [],
                                     error: &coordinationError) { readURL in
@@ -221,7 +229,7 @@ final class CloudSyncManager: ObservableObject {
                         try fm.removeItem(at: localStateURL)
                     }
                     try fm.copyItem(at: readURL, to: localStateURL)
-                    didCopy = true
+                    pulledMtime = cloudDate
                 } catch {
                     log.error("CloudSync pull failed: \(error.localizedDescription, privacy: .public)")
                 }
@@ -229,7 +237,7 @@ final class CloudSyncManager: ObservableObject {
             if let coordinationError {
                 log.error("CloudSync pull coordination failed: \(coordinationError.localizedDescription, privacy: .public)")
             }
-            return didCopy
+            return pulledMtime
         }.value
     }
 }

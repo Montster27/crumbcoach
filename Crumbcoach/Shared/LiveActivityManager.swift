@@ -16,6 +16,7 @@ import ActivityKit
 // system. The user sees no broken state — the existing recipe / active-bake
 // screens already cover the in-app surface.
 
+@MainActor
 final class LiveActivityManager {
 
     static let shared = LiveActivityManager()

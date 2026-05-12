@@ -273,7 +273,8 @@ struct ActiveBakeScreen: View {
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.border1).frame(height: 1) }
 
                 if proofOvenOpen {
-                    proofOvenPanel(stage: stage, adjustedDur: adjustedDur, baseDur: baseDur, saved: saved)
+                    proofOvenPanel(bake: bake, stage: stage,
+                                    adjustedDur: adjustedDur, baseDur: baseDur, saved: saved)
                 }
 
                 HStack(spacing: 10) {
@@ -289,7 +290,8 @@ struct ActiveBakeScreen: View {
         }
     }
 
-    private func proofOvenPanel(stage: Stage, adjustedDur: Int, baseDur: Int, saved: Int) -> some View {
+    private func proofOvenPanel(bake: ActiveBake, stage: Stage,
+                                 adjustedDur: Int, baseDur: Int, saved: Int) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -335,7 +337,7 @@ struct ActiveBakeScreen: View {
 
             HStack(spacing: 8) {
                 CCIconView(icon: .sparkle, size: 14, color: Theme.primary)
-                Text("Schedule reflowed: next fold in 9m (was 14m), bake out 5:47 AM (was 7:38 AM).")
+                Text(reflowLine(bake: bake, saved: saved, adjustedDur: adjustedDur))
                     .font(Typography.ui(12)).foregroundStyle(Theme.slate700)
                 Spacer()
             }
@@ -347,6 +349,21 @@ struct ActiveBakeScreen: View {
         .padding(.vertical, 16)
         .background(Theme.primaryTint)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.primaryTint2).frame(height: 1) }
+    }
+
+    /// Build the proof-oven "schedule reflowed" line from the actual
+    /// bake state. Previously a static demo string; now derives from the
+    /// current bake-out (pulled forward by `saved` minutes) and the
+    /// shortened stage duration.
+    private func reflowLine(bake: ActiveBake, saved: Int, adjustedDur: Int) -> String {
+        let pulled = Calendar.current.date(byAdding: .minute,
+                                            value: -saved,
+                                            to: bake.bakeOutAt) ?? bake.bakeOutAt
+        let stageLabel = CCFormat.duration(adjustedDur)
+        let saveLabel = CCFormat.duration(saved)
+        let newTime = CCFormat.clockShort.string(from: pulled)
+        let oldTime = CCFormat.clockShort.string(from: bake.bakeOutAt)
+        return "Stage shortens to \(stageLabel) (saves \(saveLabel)). Bake out \(newTime) (was \(oldTime))."
     }
 
     // MARK: Timeline card

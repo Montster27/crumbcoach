@@ -188,7 +188,7 @@ private struct StarterCard: View {
                             .font(Typography.ui(12))
                             .foregroundStyle(Theme.slate600)
                         Spacer()
-                        Text("Feed at 8:14 PM →")
+                        Text("Feed \(s.nextFeed) →")
                             .font(Typography.ui(12, weight: .medium))
                             .foregroundStyle(Theme.primary)
                     }
@@ -237,6 +237,20 @@ private struct UpNextCard: View {
     @State private var selectedTime = "10:00 AM"
     private let options = ["10:00 AM", "Noon", "Custom"]
 
+    /// Recipe shown in the "For X at Y → start build at Z" callout. Picks
+    /// the user's most-baked recipe so the card reflects their actual
+    /// kitchen; falls back to the first library recipe (or "your bake"
+    /// generically when the library is empty).
+    private var featuredRecipe: Recipe? {
+        let counts = Dictionary(grouping: state.journal, by: \.recipeId)
+            .mapValues(\.count)
+        if let topId = counts.max(by: { $0.value < $1.value })?.key,
+           let recipe = state.recipe(topId) {
+            return recipe
+        }
+        return state.recipes.first
+    }
+
     var body: some View {
         Button(action: { state.goTo(.scheduler) }) {
             VStack(alignment: .leading, spacing: 0) {
@@ -245,7 +259,7 @@ private struct UpNextCard: View {
                     .font(Typography.display(20, weight: .medium))
                     .foregroundStyle(Theme.slate900)
                     .padding(.top, 4)
-                Text("You usually bake Sunday morning. Set a target time and the scheduler will build the timeline.")
+                Text("Set a target time and the scheduler will build the timeline backward from there.")
                     .font(Typography.ui(13))
                     .foregroundStyle(Theme.slate600)
                     .padding(.top, 10)
@@ -256,15 +270,7 @@ private struct UpNextCard: View {
                     }
                 }
                 .padding(.top, 14)
-                Text("For ").font(Typography.ui(12)).foregroundStyle(Theme.slate500)
-                +
-                Text("Country Sourdough").font(Typography.ui(12, weight: .semibold)).foregroundStyle(Theme.slate700)
-                +
-                Text(" at 10 AM Sun → start levain build today ").font(Typography.ui(12)).foregroundStyle(Theme.slate500)
-                +
-                Text("at 4:14 PM").font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate700)
-                +
-                Text(".").font(Typography.ui(12)).foregroundStyle(Theme.slate500)
+                summary
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,6 +280,21 @@ private struct UpNextCard: View {
         }
         .buttonStyle(.plain)
     }
+
+    /// One-line summary below the chips. Recipe title is dynamic;
+    /// `selectedTime` controls the displayed target so taps on the chips
+    /// have a visible effect.
+    @ViewBuilder
+    private var summary: some View {
+        let recipeTitle = featuredRecipe?.title ?? "your bake"
+        let displayTime = selectedTime == "Custom" ? "your target" : "\(selectedTime) Sun"
+        Text("For ").font(Typography.ui(12)).foregroundStyle(Theme.slate500)
+        + Text(recipeTitle).font(Typography.ui(12, weight: .semibold)).foregroundStyle(Theme.slate700)
+        + Text(" at ").font(Typography.ui(12)).foregroundStyle(Theme.slate500)
+        + Text(displayTime).font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate700)
+        + Text(" → open the Scheduler to plan the build backwards.")
+            .font(Typography.ui(12)).foregroundStyle(Theme.slate500)
+    }
 }
 
 // MARK: - Diagnose prompt card
@@ -281,6 +302,21 @@ private struct UpNextCard: View {
 private struct DiagnosePromptCard: View {
     var state: AppState
     @Binding var photoPickerOpen: Bool
+
+    /// Subtitle derived from the journal. When the user has baked a
+    /// recipe at least twice we cite it by name; otherwise we keep the
+    /// pitch generic so we're not lying about "your last 6 X" for a
+    /// recipe they've only baked once.
+    private var diagnoseSubtitle: String {
+        let counts = Dictionary(grouping: state.journal, by: \.recipeId)
+            .mapValues(\.count)
+        if let top = counts.max(by: { $0.value < $1.value }),
+           top.value >= 2,
+           let recipe = state.recipe(top.key) {
+            return "On-device AI · 1.8 s · Compares against your last \(top.value) \(recipe.title) bakes."
+        }
+        return "On-device AI · 1.8 s · No upload."
+    }
 
     var body: some View {
         Button(action: { state.goTo(.diagnose) }) {
@@ -294,7 +330,7 @@ private struct DiagnosePromptCard: View {
                     .font(Typography.display(20, weight: .medium))
                     .foregroundStyle(Theme.slate900)
                     .padding(.top, 6)
-                Text("On-device AI · 1.8 s · Compares against your last 6 Country Sourdoughs.")
+                Text(diagnoseSubtitle)
                     .font(Typography.ui(12.5))
                     .foregroundStyle(Theme.slate600)
                     .padding(.top, 8)

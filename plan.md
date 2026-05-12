@@ -2699,30 +2699,32 @@ Worth working through before the TestFlight beta widens.
 
 ### User-visible hardcoded copy
 
-- [ ] **HomeScreen StarterCard "Feed at 8:14 PM →"**
-  ([HomeScreen.swift:191](Crumbcoach/Features/Home/HomeScreen.swift:191))
-  — fixed clock time regardless of selected starter's `nextFeed`.
-  Replace with `starter.nextFeed` or compute from last-fed + 4–6h.
-- [ ] **HomeScreen UpNextCard "Country Sourdough … at 4:14 PM"**
-  ([HomeScreen.swift:261](Crumbcoach/Features/Home/HomeScreen.swift:261)
-  / [:265](Crumbcoach/Features/Home/HomeScreen.swift:265))
-  — recipe title + levain-build time both hardcoded. Should derive
-  from the user's most-recently-baked or favorited recipe, and
-  compute the build time from the chosen target.
-- [ ] **HomeScreen DiagnosePromptCard "your last 6 Country
-  Sourdoughs"** ([HomeScreen.swift:297](Crumbcoach/Features/Home/HomeScreen.swift:297))
-  — hardcoded recipe name in promo copy. Should reflect the user's
-  actual most-baked recipe (or generic "recent bakes" when journal
-  is sparse).
-- [ ] **StarterScreen photo timestamp fallback "6:14 PM today"**
-  ([StarterScreen.swift:130](Crumbcoach/Features/Starter/StarterScreen.swift:130))
-  — when `starter.lastPhotoTime` is nil. Replace with "No photo
-  yet" or hide the timestamp line entirely.
-- [ ] **ActiveBakeScreen proof-oven schedule reflow line**
-  ([ActiveBakeScreen.swift:328](Crumbcoach/Features/ActiveBake/ActiveBakeScreen.swift:328))
-  — "Schedule reflowed: next fold in 9m (was 14m), bake out 5:47
-  AM (was 7:38 AM)" is a static demo string. Should derive from
-  the Stage-8 rebalanced schedule.
+- [x] ~~**HomeScreen StarterCard "Feed at 8:14 PM →"**~~ Closed:
+  now reads `starter.nextFeed` so the displayed time reflects the
+  selected starter's actual state.
+- [x] ~~**HomeScreen UpNextCard "Country Sourdough … at 4:14 PM"**~~
+  Closed: featured recipe derives from the most-baked recipe in
+  the journal (falls back to the first library recipe / generic
+  "your bake" when journal is empty). Time chip selection now
+  flows into the displayed copy so the chips have a visible
+  effect. Levain-build time hint removed since we can't
+  honestly compute it without a chosen schedule.
+- [x] ~~**HomeScreen DiagnosePromptCard "your last 6 Country
+  Sourdoughs"**~~ Closed: subtitle picks the user's most-baked
+  recipe (with a 2-bake threshold) and cites it by name; falls
+  back to "On-device AI · 1.8 s · No upload." when journal is
+  sparse.
+- [x] ~~**StarterScreen photo timestamp fallback "6:14 PM today"**~~
+  Closed: photo-time line is now gated on `starter.lastPhotoTime`
+  — only renders when an actual photo exists. Plus the
+  hardcoded "Surface starting to recede" headline became
+  `starter.state` so the AI-check card reflects the starter's
+  real state.
+- [x] ~~**ActiveBakeScreen proof-oven schedule reflow line**~~
+  Closed: `reflowLine(bake:saved:adjustedDur:)` computes the
+  pulled-forward bake-out time from `bake.bakeOutAt - saved`
+  minutes and renders "Stage shortens to Xm (saves Ym). Bake
+  out HH:MM (was HH:MM)."
 
 ### Sidekick UI (mocked until Stage 25)
 
@@ -2731,28 +2733,21 @@ The Sourdough Sidekick BLE integration is blocked on a partnership
 is paired and reporting; until the integration lands they're
 narrative theater.
 
-- [ ] **StarterScreen sidekickCard**
-  ([StarterScreen.swift:193–208](Crumbcoach/Features/Starter/StarterScreen.swift:193))
-  — Connected pill, "Counter-active" preset, "Last feed at 8:14 AM
-  · jar temp 23.1°C · 152% peak observed" all hardcoded with no
-  data path behind them. Hide behind a feature flag (`Stage25Enabled`
-  / `state.sidekickPaired`) and surface a "Pair a Sourdough Sidekick
-  (coming soon)" stub instead, or remove from v1.
-- [ ] **SchedulerScreen sidekickLoopCard**
-  ([SchedulerScreen.swift:338–349](Crumbcoach/Features/Scheduler/SchedulerScreen.swift:338))
-  — "Ruby will be fed 1:5:5 at 2:14 PM to peak 200g of 100%
-  hydration levain at mix time Sat 8:14 PM" — single static
-  paragraph. The `useSidekick` toggle in the conditions card gates
-  visibility but the copy never adapts. Same fix as above.
+- [x] ~~**StarterScreen sidekickCard**~~ Closed: card hidden
+  entirely from the side stack. The `sidekickCard` view stays in
+  the file so Stage 25 can reactivate without re-implementing.
+- [x] ~~**SchedulerScreen sidekickLoopCard**~~ Closed: card
+  removed from the preview column. The `useSidekick` Bool in
+  `ScheduleParams` stays so Stage 25 can flip it back on without
+  a model change; the Conditions toggle that exposed it to the
+  user is gone.
 
 ### Interaction lies
 
-- [ ] **HomeScreen UpNextCard time chips**
-  ([HomeScreen.swift:237](Crumbcoach/Features/Home/HomeScreen.swift:237))
-  — `@State selectedTime` mutated by TagPills (line 255), but the
-  paragraph below (lines 259–267) is fully hardcoded and never
-  reads it. Taps register, nothing changes on screen. Either wire
-  the chips into the displayed schedule preview or remove them.
+- [x] ~~**HomeScreen UpNextCard time chips**~~ Closed: chip
+  selection now flows into the displayed summary text
+  (`selectedTime` reads through to "at <time> Sun" or "at your
+  target" for Custom). Taps have visible effect.
 
 ### Recently spotted from review
 
@@ -2766,22 +2761,27 @@ visibility.)
   pulled `oil` out of the liquid chain entirely; oil is always a
   fat in bread math.
   ([RecipeImporter.swift](Crumbcoach/Shared/RecipeImporter.swift))
-- [ ] `cloudSyncEnabled` round-trips through the cloud JSON, so
-  opt-out on one device gets silently re-enabled by a pull from a
-  still-enabled device.
-  ([AppState.swift](Crumbcoach/Data/AppState.swift))
-  Move opt-in to UserDefaults or skip the field in `reload(from:)`.
-- [ ] `LiveActivityManager` not `@MainActor`-isolated.
-  ([LiveActivityManager.swift](Crumbcoach/Shared/LiveActivityManager.swift))
-  Today's callers are all main; Swift 6 strict concurrency will
-  flag this.
-- [ ] Share extension accepts any URL the system hands it; non-
-  `http(s)` schemes pass through and fail later in the importer.
-  ([ShareViewController.swift:52](../CrumbcoachShareExtension/ShareViewController.swift:52))
-  Validate `url.scheme` before encoding the deep link.
-- [ ] `cloudSyncStatusLine` shows `Date()` (now) as "Last synced"
-  after a pull, hiding the cloud file's real mtime.
-  ([SettingsScreen.swift](Crumbcoach/Features/Settings/SettingsScreen.swift))
+- [x] ~~`cloudSyncEnabled` round-trips through the cloud JSON~~
+  Closed: `AppState.reload(from:)` no longer copies
+  `loaded.cloudSyncEnabled` — the flag is device-local opt-in,
+  one iPad disabling it doesn't reach back through the cloud and
+  silently re-enable on the other device.
+- [x] ~~`LiveActivityManager` not `@MainActor`-isolated~~ Closed:
+  class marked `@MainActor`. AppState's seven call sites now
+  bounce through a tiny `runOnMainActor` helper that wraps
+  `Task { @MainActor in ... }`. Swift 6 isolation warnings clear.
+- [x] ~~Share extension accepts any URL~~ Closed:
+  `ShareViewController.extractURL` filters via `isWebURL(_:)`
+  before forwarding — only `http` / `https` schemes reach the
+  importer; everything else (mailto, ftp, javascript, custom
+  schemes) is dropped silently.
+- [x] ~~`cloudSyncStatusLine` shows `Date()` after pull~~ Closed:
+  `CloudSyncManager.performPull` now returns the cloud file's
+  authoring `Date` (`contentModificationDate`) when a copy
+  actually happens; the pull status uses that instead of
+  `Date()`, so "Last synced HH:MM" reflects when the OTHER
+  device wrote the file. Two iPads side-by-side will report the
+  same timestamp.
 
 ### Confirmed clean
 

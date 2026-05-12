@@ -87,12 +87,13 @@ struct SchedulerScreen: View {
             }
             .frame(width: 380)
 
-            // RIGHT — preview
+            // RIGHT — preview. The Sidekick loop card stays hidden in
+            // v1 until Stage 25's BLE integration lands and there's
+            // real device data to display; today the copy was a
+            // hardcoded paragraph that didn't reflect the user's
+            // schedule or starter.
             VStack(spacing: 16) {
                 previewCard
-                if useSidekick, let r = recipe, r.breadType == .sourdough {
-                    sidekickLoopCard
-                }
             }
             .frame(maxWidth: .infinity)
         }
@@ -207,9 +208,10 @@ struct SchedulerScreen: View {
                 ToggleRow(label: "Cold retard overnight",
                            sub: "12h fridge after final shape",
                            isOn: $coldRetard)
-                ToggleRow(label: "Sourdough Sidekick",
-                           sub: "Auto-build levain to peak at mix",
-                           isOn: $useSidekick)
+                // Sidekick toggle hidden in v1 — the BLE integration is
+                // gated on the FirstBuild partnership (Stage 25). The
+                // underlying `useSidekick` Bool stays in ScheduleParams so
+                // Stage 25 can flip it back on without a model change.
             }
         }
     }

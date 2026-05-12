@@ -236,7 +236,7 @@ final class AppState {
         // The sample bake isn't actually scheduled, so any pending bake
         // notifications point at the old data — clear them.
         NotificationManager.shared.cancelAllBakeReminders()
-        LiveActivityManager.shared.end(immediate: true)
+        runOnMainActor { LiveActivityManager.shared.end(immediate: true) }
         saveSoon()
     }
 
@@ -253,7 +253,7 @@ final class AppState {
         starters = SampleStarters.all
         selectedRecipeId = SampleRecipes.all.first?.id ?? ""
         NotificationManager.shared.cancelAllBakeReminders()
-        LiveActivityManager.shared.end(immediate: true)
+        runOnMainActor { LiveActivityManager.shared.end(immediate: true) }
         // Clear Spotlight + the widget snapshot so the system search and
         // Home Screen don't surface stale state after the reset.
         SpotlightIndex.clear()
@@ -474,7 +474,11 @@ final class AppState {
         self.telemetryEnabled   = loaded.telemetryEnabled
         self.units              = loaded.units
         self.kitchenTempSource  = loaded.kitchenTempSource
-        self.cloudSyncEnabled   = loaded.cloudSyncEnabled
+        // `cloudSyncEnabled` is intentionally NOT copied from the pulled
+        // snapshot. The flag is a device-local opt-in; round-tripping it
+        // through the cloud file would silently re-enable sync on a
+        // device the user had explicitly disabled it on. Each iPad
+        // controls its own subscription independently.
 
         // Reconcile the Live Activity with the new bake state.
         //   - bake id changed (cleared, or different bake): end the old
@@ -482,17 +486,34 @@ final class AppState {
         //   - same id: the bake's internal state (folds, stage) may have
         //     advanced on another device — push an update.
         if priorBakeId != newBakeId {
-            LiveActivityManager.shared.end(immediate: true)
+            runOnMainActor { LiveActivityManager.shared.end(immediate: true) }
             if let bake = activeBake, let recipe = recipe(bake.recipeId) {
-                LiveActivityManager.shared.start(
-                    recipeTitle: recipe.title,
-                    startedAt: bake.startedAt,
-                    state: liveActivityState(for: bake, recipe: recipe)
-                )
+                let title = recipe.title
+                let started = bake.startedAt
+                let liveState = liveActivityState(for: bake, recipe: recipe)
+                runOnMainActor {
+                    LiveActivityManager.shared.start(
+                        recipeTitle: title,
+                        startedAt: started,
+                        state: liveState
+                    )
+                }
             }
         } else if activeBake != nil {
             pushLiveActivityUpdate()
         }
+    }
+
+    // MARK: Live Activity bounce
+
+    /// `LiveActivityManager` became `@MainActor` for Swift 6 isolation
+    /// readiness. AppState itself is non-isolated (the saveSoon Task body
+    /// runs off-main to keep disk I/O off the UI thread), so every call
+    /// into the manager bounces through this fire-and-forget hop. Cheap
+    /// — no awaiting on the caller, the manager's own operations are
+    /// already non-blocking.
+    private func runOnMainActor(_ action: @escaping @MainActor @Sendable () -> Void) {
+        Task { @MainActor in action() }
     }
 
     // MARK: Widget snapshot
@@ -756,11 +777,16 @@ final class AppState {
         // Hand off to the lock-screen / Dynamic Island UI. The activity
         // updates on every fold/advance/skip and ends on completeBake.
         if let bake = activeBake {
-            LiveActivityManager.shared.start(
-                recipeTitle: recipe.title,
-                startedAt: schedule.startTime,
-                state: liveActivityState(for: bake, recipe: recipe)
-            )
+            let title = recipe.title
+            let started = schedule.startTime
+            let liveState = liveActivityState(for: bake, recipe: recipe)
+            runOnMainActor {
+                LiveActivityManager.shared.start(
+                    recipeTitle: title,
+                    startedAt: started,
+                    state: liveState
+                )
+            }
         }
         saveSoon()
         goTo(.activeBake)
@@ -850,7 +876,8 @@ final class AppState {
     /// after fold ticks and stage transitions.
     private func pushLiveActivityUpdate() {
         guard let bake = activeBake, let recipe = recipe(bake.recipeId) else { return }
-        LiveActivityManager.shared.update(liveActivityState(for: bake, recipe: recipe))
+        let state = liveActivityState(for: bake, recipe: recipe)
+        runOnMainActor { LiveActivityManager.shared.update(state) }
     }
 
     /// Snapshot of bake/recipe state in the shape the widget renders.
@@ -936,7 +963,7 @@ final class AppState {
 
         activeBake = nil
         NotificationManager.shared.cancelAllBakeReminders()
-        LiveActivityManager.shared.end()
+        runOnMainActor { LiveActivityManager.shared.end() }
         Haptics.success()
         saveSoon()
         goTo(.home)
