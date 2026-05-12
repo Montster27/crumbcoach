@@ -266,6 +266,17 @@ enum RecipeImporter {
                 warnings.append(
                     "Estimated \(Int(grams.rounded()))g for \"\(trimmed)\" using the standard weight for \(keyword) — verify before baking."
                 )
+            } else if let (grams, sizeLabel) = parseEggCount(trimmed) {
+                out.append(Ingredient(
+                    name: "egg",
+                    category: categoryGuess(for: "egg"),
+                    weightGrams: grams,
+                    bakersPct: 0,
+                    section: "main"
+                ))
+                warnings.append(
+                    "Estimated \(Int(grams.rounded()))g for \"\(trimmed)\" using the standard weight for a \(sizeLabel) (~50 g each) — verify before baking."
+                )
             } else {
                 out.append(Ingredient(
                     name: trimmed,
@@ -283,7 +294,11 @@ enum RecipeImporter {
     // MARK: - Table-based parser (Stage 17.5a)
 
     private static let leadingQuantityUnitRegex: NSRegularExpression? = try? NSRegularExpression(
-        pattern: #"^\s*(\d+(?:\s+\d+/\d+)?(?:[.,]\d+)?|\d+/\d+)\s*(cups?|tablespoons?|tbsp\.?|tbs\.?|teaspoons?|tsp\.?)\b\s*(.*)$"#,
+        // Mixed numbers are accepted with either a space or the word "and"
+        // as the join: "1 1/2 cups" and "1 and 1/2 cups" both capture as
+        // the same quantity group. Sally's Baking Addiction and several
+        // older blog templates use the "and" form.
+        pattern: #"^\s*(\d+(?:\s+(?:and\s+)?\d+/\d+)?(?:[.,]\d+)?|\d+/\d+)\s*(cups?|tablespoons?|tbsp\.?|tbs\.?|teaspoons?|tsp\.?)\b\s*(.*)$"#,
         options: [.caseInsensitive]
     )
 
@@ -317,10 +332,23 @@ enum RecipeImporter {
         return (estimate.grams, name.isEmpty ? rest : name, estimate.matchedKeyword)
     }
 
-    /// Parse "2", "1.5", "1/2", "2 1/4" — the four numeric forms recipes
-    /// actually use. Decimal comma normalized to a period.
+    /// Parse "2", "1.5", "1/2", "2 1/4", "1 and 1/2", and the unicode
+    /// vulgar fractions (½ ¼ ¾ ⅓ ⅔ ⅛ ⅜ ⅝ ⅞). Decimal comma normalized
+    /// to a period; the word "and" between whole and fraction normalized
+    /// to a space.
     private static func parseQuantity(_ raw: String) -> Double? {
-        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        let trimmed = raw
+            .replacingOccurrences(of: "\u{00BD}", with: " 1/2")  // ½
+            .replacingOccurrences(of: "\u{00BC}", with: " 1/4")  // ¼
+            .replacingOccurrences(of: "\u{00BE}", with: " 3/4")  // ¾
+            .replacingOccurrences(of: "\u{2153}", with: " 1/3")  // ⅓
+            .replacingOccurrences(of: "\u{2154}", with: " 2/3")  // ⅔
+            .replacingOccurrences(of: "\u{215B}", with: " 1/8")  // ⅛
+            .replacingOccurrences(of: "\u{215C}", with: " 3/8")  // ⅜
+            .replacingOccurrences(of: "\u{215D}", with: " 5/8")  // ⅝
+            .replacingOccurrences(of: "\u{215E}", with: " 7/8")  // ⅞
+            .replacingOccurrences(of: " and ", with: " ", options: [.caseInsensitive])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: ",", with: ".")
         // Mixed number "2 1/4"
         if let spaceIdx = trimmed.firstIndex(of: " ") {
@@ -354,13 +382,57 @@ enum RecipeImporter {
         }
     }
 
+    // MARK: - Egg-count parser
+
+    private static let eggCountRegex: NSRegularExpression? = try? NSRegularExpression(
+        // "3 large eggs", "1 jumbo egg", "2 medium eggs, room temperature".
+        // Size word is optional and defaults to "large" — by convention an
+        // unqualified "1 egg" in a recipe is a large egg.
+        pattern: #"^\s*(\d+)\s*(?:(large|extra[-\s]large|jumbo|medium|small)\s+)?eggs?\b"#,
+        options: [.caseInsensitive]
+    )
+
+    /// USDA standard egg weights (whole egg, in shell-removed grams):
+    /// jumbo 63, extra-large 56, large 50, medium 44, small 38. Recipes
+    /// almost always assume "large" when the size is unwritten.
+    private static func parseEggCount(_ input: String) -> (Double, String)? {
+        guard let regex = eggCountRegex else { return nil }
+        let ns = input as NSString
+        guard let match = regex.firstMatch(in: input,
+                                            range: NSRange(location: 0, length: ns.length)),
+              match.numberOfRanges >= 2,
+              let count = Int(ns.substring(with: match.range(at: 1))) else { return nil }
+        // Size group is optional; range.location == NSNotFound when absent.
+        let sizeRaw: String
+        if match.range(at: 2).location != NSNotFound {
+            sizeRaw = ns.substring(with: match.range(at: 2))
+                .lowercased()
+                .replacingOccurrences(of: " ", with: "-")
+        } else {
+            sizeRaw = "large"
+        }
+        let perEgg: Double
+        switch sizeRaw {
+        case "jumbo":       perEgg = 63
+        case "extra-large": perEgg = 56
+        case "medium":      perEgg = 44
+        case "small":       perEgg = 38
+        default:            perEgg = 50  // "large" or unspecified
+        }
+        return (Double(count) * perEgg, "\(sizeRaw) egg")
+    }
+
     private static let leadingWeightRegex: NSRegularExpression? = try? NSRegularExpression(
         pattern: #"^\s*([0-9]+(?:[.,][0-9]+)?)\s*(kg|kilograms?|g|grams?|oz|ounces?)\b\s*(.*)$"#,
         options: [.caseInsensitive]
     )
 
     private static let parenthesizedWeightRegex: NSRegularExpression? = try? NSRegularExpression(
-        pattern: #"\(\s*([0-9]+(?:[.,][0-9]+)?)\s*(kg|kilograms?|g|grams?|oz|ounces?)\s*\)"#,
+        // `\b` after the unit prevents matching "g" inside "gallon". The
+        // `[^)]*` tail consumes whatever else is in the parens after the
+        // gram value — Sally's Baking Addiction publishes "(113g; 8 Tbsp)"
+        // and the old `\s*\)` anchor refused to match that shape.
+        pattern: #"\(\s*([0-9]+(?:[.,][0-9]+)?)\s*(kg|kilograms?|g|grams?|oz|ounces?)\b[^)]*\)"#,
         options: [.caseInsensitive]
     )
 

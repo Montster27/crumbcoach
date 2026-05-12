@@ -2005,22 +2005,54 @@ Warnings differentiate three cases now:
 - Partial: "3 of 5 stages had no explicit duration — fill those
   in." (so the user knows which fraction needs attention)
 
+**Post-Sally's-Brioche follow-ups landed:**
+
+- **"and" between whole and fraction.** Sally's Baking Addiction
+  publishes `"1 and 1/2 teaspoons salt"` — the quantity parser
+  silently dropped these because it only accepted whitespace
+  between the whole and the fraction. Both the
+  `leadingQuantityUnitRegex` and the inline `parseQuantity` now
+  accept either form, and `parseQuantity` normalizes `and` to a
+  space + decimal comma to period.
+- **Unicode vulgar fractions** (`½`, `¼`, `¾`, `⅓`, `⅔`, `⅛`,
+  `⅜`, `⅝`, `⅞`) get normalized to their ASCII equivalents in
+  `parseQuantity` so older recipe templates using typographic
+  fractions parse the same as plain text.
+- **Parenthesized grams with extra content.** Sally's publishes
+  `"1/2 cup (113g; 8 Tbsp) unsalted butter"` — the parens-weight
+  regex required `\s*\)` immediately after the unit, so the
+  `; 8 Tbsp` tail broke the match and we fell back to the table
+  (114g for "butter"). Loosened to `[^)]*\)` with a `\b` after
+  the unit, so any non-paren content between unit and close
+  paren is consumed. The authoritative source value now wins.
+- **Egg counts** — `parseEggCount` added as a fourth parser path
+  after the table. Matches `"3 large eggs"` / `"1 jumbo egg"` /
+  `"2 medium eggs, room temperature"` with optional size word;
+  uses USDA standard weights (jumbo 63g, extra-large 56g, large
+  50g, medium 44g, small 38g) and defaults to "large" when the
+  size isn't written (recipe convention). Egg-wash composite
+  strings like `"egg wash: 1 large egg beaten with…"` start with
+  a word, not a digit, so they correctly fall through to the
+  "couldn't parse" warning rather than mis-extracting the egg.
+
 Known gaps deliberately left for later:
 
 - Long-tail ingredients (almond meal, einkorn, malt syrup, kefir,
   etc.) aren't in the table. They fall through to the
   "couldn't parse" warning today. Adding rows is mechanical when
   the user surfaces a specific case.
-- Eggs counted as "1 large egg" / "2 eggs" aren't handled — those
-  use a count-based pattern (no volume unit). Worth a separate
-  `parseEggCount` path if Foodgeek-style enriched recipes show up
-  often.
 - The table assumes US-customary volume conventions (a US cup =
   237 ml). Recipes from UK / AU sites with imperial cups (284 ml)
   would skew low. Worth a `Locale`-based switch if European
   imports become common.
 - No oz / lb mass parsing — Stage 17's regex already handles those
   cases.
+- Composite ingredients (`"egg wash: …beaten with…milk"`) drop to
+  the "couldn't parse" warning. Splitting these into two ingredient
+  rows is a Stage 17.5b LLM job, not a regex job.
+- Range *display* — duration ranges (`"60 to 90 minutes"`) collapse
+  to the lower bound on import. Surfacing the range to the user is
+  Stage 18.5a's model change + UI work.
 
 ### Stage 18 — Share & export
 
@@ -2144,6 +2176,159 @@ shared one.
 - The share extension has no UI — taps Share → CrumbCoach → main
   app opens almost instantly. A toast/confirmation could go in if
   user testing finds the silent hand-off confusing.
+
+### Stage 18.5 — Duration ranges + kitchen-learned timings
+
+**Sketch — not started.** The honest answer to "Many bread timings
+will be ranges based on a condition, double in size etc. … if the
+user enters the time they waited during the active bake we can show
+that in the future for the time it took in their kitchen."
+
+Two halves to this stage, sharing the same model change:
+
+#### 18.5a — Capture and surface the source range
+
+Today Stage 17 collapses `"60 to 90 minutes"` to a single
+`durationMin = 60` (lower bound). The upper bound is thrown away
+and the user sees no hint that the source published a window. This
+hides exactly the most useful piece of recipe judgment — "check at
+60, may need up to 90."
+
+Model change:
+
+```swift
+struct Stage: Identifiable, Codable, Hashable {
+    var kind: StageKind
+    var durationMin: Int             // lower bound (or single value)
+    var durationMaxMin: Int? = nil   // upper bound when a range was published
+    // ...
+}
+```
+
+`durationMin` keeps its current meaning (the conservative single
+value the scheduler uses); `durationMaxMin` is optional and
+populated only when the importer saw a range. Old persisted
+recipes decode unchanged.
+
+Importer change: `parseDurationMinutes` becomes
+`parseDurationWindow -> (Int, Int?)` — returns lower + optional
+upper. Range pattern populates both; compound / single populate
+lower only. The compound case (`"1 hour 30 minutes"` → 90) is
+single by design.
+
+UI surfaces:
+
+- **Recipe editor `StageRow`** — single duration field when
+  `durationMaxMin == nil`; a `Min – Max` pair of fields when both
+  set. Swapping to the single form clears the upper bound.
+- **Recipe detail timeline** — show `60–90 min` in the stage row
+  pill when both set, otherwise the existing single duration.
+- **Scheduler timeline preview** — schedule against the lower
+  bound (today's behavior, conservative) but caption it
+  `"start checking at 60 min — recipe says up to 90"` for ranged
+  stages.
+- **Active bake current-stage card** — show the range plus a "your
+  kitchen typically takes X" override once 18.5b lands (below).
+
+This half delivers value on its own — the user sees what the
+source actually said. Maybe 2–3 hours of work.
+
+#### 18.5b — Kitchen-learned timings from journal data
+
+`ActiveBake.StageHistoryEntry` already captures `enteredAt` and
+`exitedAt` per stage (Stage 3 added them). `completeBake` writes
+`bulkMinutes` to the journal. The data foundation is there; what
+is missing is an aggregation surface that says "for this recipe,
+this stage, in this kitchen, you usually take N minutes."
+
+Two new pieces:
+
+- **`JournalEntry.stageDurations: [Int: Int]?`** — `stageIndex →
+  minutes`. Populated in `completeBake` from every history entry's
+  `enteredAt`/`exitedAt`. Today we drop everything except bulk;
+  this preserves the rest.
+- **`Analytics.kitchenTimings(for recipeId:, in journal:) ->
+  [Int: KitchenTiming]`** where:
+
+  ```swift
+  struct KitchenTiming {
+      let stageIndex: Int
+      let averageMinutes: Int
+      let bakes: Int          // sample size — UI gates on >= 3
+      let median: Int?        // outlier guard for small samples
+      let lastBake: Int       // most recent timing for "this week" context
+  }
+  ```
+
+  Iterates the journal entries for the recipe, gathers per-stage
+  durations, computes mean/median. Sample-size threshold means the
+  feature surfaces only after the user has actually baked the
+  recipe a few times.
+
+UI:
+
+- **Active bake current-stage card** picks up a third line beneath
+  the title — `"Your kitchen typically takes 4h 35m for this stage
+  (5 bakes)."` — when the threshold is met. Replaces or augments
+  today's hardcoded "this dough has averaged 4h 45m bulk in your
+  last 5 bakes" copy (which is currently a static string in
+  `currentStageCard`).
+- **Recipe detail timeline** swaps the recipe-baseline duration
+  for the user's average when the sample size is sufficient,
+  badged `"your kitchen"` so the source-of-truth is visible.
+- **Scheduler timeline preview** uses `kitchenTimings` to compute
+  the `historyAdjustmentPct` the scheduler already accepts as a
+  parameter — replaces today's hardcoded `historyAdjustmentPct:
+  15` with a per-recipe / per-stage computed value.
+
+This half is the spec's whole "scheduler learns your kitchen"
+pitch made real. ~4–6 hours of work including the model change,
+the aggregation, and three UI surfaces.
+
+#### Why these belong together
+
+They share the model: `Stage.durationMaxMin` (18.5a) gives the
+recipe-side range, and `KitchenTiming.averageMinutes` (18.5b)
+gives the kitchen-side actual. Both pieces appear in the same UI
+surfaces (active bake stage card, recipe detail, scheduler) — a
+ranged stage with kitchen learning reads as:
+
+> **Cold retard** — recipe says **8 – 12 hours**; your kitchen
+> averages **9h 20m** over your last 4 bakes.
+
+Without 18.5a, the recipe-side number is misleadingly precise.
+Without 18.5b, the user has to remember their own kitchen's
+timing. With both, the active-bake card stops being a recipe
+read-out and becomes the user's running coach. That's the
+"crumbcoach" pitch.
+
+#### Risks and trade-offs
+
+- **Model migration**: optional field with default `nil`, so
+  no breaking change. The Scheduler still uses `durationMin` for
+  reverse-scheduling — adding `durationMaxMin` is purely
+  informational unless the user opts into "schedule against upper
+  bound" (Phase C polish).
+- **Sample-size threshold**: too low (1 bake) is noisy; too high
+  (10 bakes) means the feature never appears for slow bakers. 3
+  bakes feels right; expose as a constant for tuning.
+- **Kitchen drift**: a baker's kitchen warms over the summer, so
+  averages from 6 months ago may not reflect today. `KitchenTiming`
+  should weight recent bakes higher — exponential decay on age,
+  or simple "last 5 bakes" window.
+- **Cross-recipe transfer**: if the user bakes a new recipe with
+  a `.bulkFold` stage at 22°C, their kitchen's history on other
+  recipes' `.bulkFold` stages at similar temps is relevant. Cross-
+  recipe aggregation is a Phase D possibility (Stage 24-ish, on-
+  device modeling).
+
+#### Sequencing
+
+Build 18.5a first — it's the model change + simple UI updates,
+delivers immediate value, unblocks 18.5b. If user testing on real
+recipes shows the range surface is enough, 18.5b can wait until
+the journal has enough data to be useful (the user needs to bake
+3+ times before kitchen learning even appears).
 
 ---
 
@@ -2420,9 +2605,10 @@ visibility.)
 | 15    | done     |       | iCloud Drive sync (ubiquity Documents). See "Stage 15 — completion notes". |
 | 16    | done     |       | Live Activity widget. See "Stage 16 — completion notes". |
 | 17    | done     |       | Recipe URL import (JSON-LD). See "Stage 17 — completion notes". |
-| 17.5a | done     |       | Import gap-filling — static volume-to-grams table. See "Stage 17.5a — completion notes". |
+| 17.5a | done     |       | Import gap-filling — static volume-to-grams table + duration parsing + egg counts + parens/"and" fixes. See "Stage 17.5a — completion notes". |
 | 17.5b | sketched |       | Import gap-filling — Foundation Models fallback. |
 | 18    | done     |       | Share & export. See "Stage 18 — completion notes". |
+| 18.5  | sketched |       | Duration ranges + kitchen-learned timings. See "Stage 18.5". |
 
 ### Phase C — platform expansion (1.x → 2.0)
 
