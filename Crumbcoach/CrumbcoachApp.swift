@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreSpotlight
 
 @main
 struct CrumbcoachApp: App {
@@ -44,6 +45,20 @@ struct CrumbcoachApp: App {
                     // crumbcoach://recipe/<id> → open the detail.
                     // crumbcoach://import?url=<encoded> → editor with URL.
                     appState.handleIncomingURL(url)
+                }
+                // Spotlight tap + Handoff hand-off both deliver an
+                // NSUserActivity. We route both through the same handler so
+                // a recipe tap from iPad search or an iPhone Handoff bubble
+                // lands on the recipe detail.
+                .onContinueUserActivity(SpotlightIndex.activityType) { activity in
+                    if let id = SpotlightIndex.recipeId(from: activity) {
+                        appState.openRecipe(id)
+                    }
+                }
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let id = SpotlightIndex.recipeId(from: activity) {
+                        appState.openRecipe(id)
+                    }
                 }
         }
         .onChange(of: scenePhase) { _, phase in

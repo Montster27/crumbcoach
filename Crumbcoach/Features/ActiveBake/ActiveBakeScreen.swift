@@ -98,6 +98,16 @@ struct ActiveBakeScreen: View {
                 }
                 .frame(height: 160)
                 .clipped()
+                // Stage 27 — drag a photo from Photos / Files / Safari
+                // onto the header to attach it to the current stage.
+                // Goes through the same AppState.addPhoto path the picker
+                // uses, so photo-error handling + persistence stay
+                // single-source.
+                .dropDestination(for: Data.self) { items, _ in
+                    guard let data = items.first,
+                          let image = UIImage(data: data) else { return false }
+                    return state.addPhoto(image, toStage: bake.currentStageIndex) != nil
+                }
 
                 VStack(spacing: 12) {
                     HStack(spacing: 12) {

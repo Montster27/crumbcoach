@@ -133,6 +133,11 @@ final class AppState {
         // subscription matches the user's choice from launch onward. The
         // call is idempotent and lightweight, safe to make every init.
         TelemetryManager.shared.setEnabled(self.telemetryEnabled)
+
+        // Stage 27 — refresh Spotlight on launch so the system search
+        // reflects whatever's in the loaded recipe library. Recipe edits
+        // re-index via the saveSoon path.
+        SpotlightIndex.index(self.recipes)
         // Same shape for cloud sync — keep the manager's internal flag in
         // step with the persisted preference. Actual pull happens via
         // `syncWithCloud()` on app foreground (see CrumbcoachApp).
@@ -176,7 +181,12 @@ final class AppState {
             }
             // Refresh the Home Screen / Lock Screen widget snapshot. Cheap
             // no-op when the App Group entitlement isn't reachable.
-            Task { @MainActor in self.updateWidgetSnapshot() }
+            Task { @MainActor in
+                self.updateWidgetSnapshot()
+                // Re-index Spotlight so renames / deletions / fresh
+                // imports surface in the system search.
+                SpotlightIndex.index(self.recipes)
+            }
         }
     }
 
@@ -244,6 +254,11 @@ final class AppState {
         selectedRecipeId = SampleRecipes.all.first?.id ?? ""
         NotificationManager.shared.cancelAllBakeReminders()
         LiveActivityManager.shared.end(immediate: true)
+        // Clear Spotlight + the widget snapshot so the system search and
+        // Home Screen don't surface stale state after the reset.
+        SpotlightIndex.clear()
+        SharedContainer.writeWidgetSnapshot(WidgetSnapshot(generatedAt: Date(),
+                                                            activeBake: nil))
         saveNow()
     }
 

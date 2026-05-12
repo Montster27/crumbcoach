@@ -35,6 +35,23 @@ struct RecipeDetailScreen: View {
             content(for: recipe)
                 .onAppear { initSliders(from: recipe) }
                 .onChange(of: recipeId) { _, _ in initSliders(from: recipe) }
+                // Stage 27 — broadcast the current recipe as the user's
+                // active activity so Handoff suggests it on the user's
+                // iPhone / Mac. The same activity type is what
+                // CrumbcoachApp's `.onContinueUserActivity` listens for,
+                // so an iPhone bubble or a Spotlight result both land
+                // here.
+                .userActivity(SpotlightIndex.activityType,
+                              isActive: true) { activity in
+                    let staged = SpotlightIndex.userActivity(for: recipe)
+                    activity.title = staged.title
+                    activity.userInfo = staged.userInfo
+                    activity.requiredUserInfoKeys = staged.requiredUserInfoKeys
+                    activity.isEligibleForHandoff = true
+                    activity.isEligibleForSearch = true
+                    activity.isEligibleForPrediction = true
+                    activity.webpageURL = staged.webpageURL
+                }
                 .sheet(isPresented: $editorOpen) {
                     RecipeEditorScreen(state: state, editingRecipeId: recipeId)
                 }

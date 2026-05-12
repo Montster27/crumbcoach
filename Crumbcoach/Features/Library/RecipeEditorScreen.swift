@@ -211,6 +211,20 @@ struct RecipeEditorScreen: View {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .stroke(Theme.border1, lineWidth: 1)
                     )
+                    // Stage 27 — drag a photo from Photos / Files / Safari
+                    // straight onto the thumbnail. Same persistence path
+                    // as the picker, so the photo error surface (Stage 7)
+                    // catches save failures the same way.
+                    .dropDestination(for: Data.self) { items, _ in
+                        guard let data = items.first,
+                              let image = UIImage(data: data) else { return false }
+                        if let filename = state.persistence.savePhoto(image) {
+                            draft.photo = filename
+                            return true
+                        }
+                        state.photoErrorMessage = "Couldn't save that photo. Try again — your iPad may be low on storage."
+                        return false
+                    }
                 VStack(alignment: .leading, spacing: 6) {
                     Button { photoPickerOpen = true } label: {
                         Label(draft.photo == nil ? "Choose photo" : "Replace photo",
@@ -221,7 +235,7 @@ struct RecipeEditorScreen: View {
                             Label("Remove photo", systemImage: "trash")
                         }
                     }
-                    Text("Shown on the recipe card and the active-bake header. Bundled assets stay if you leave this blank.")
+                    Text("Shown on the recipe card and the active-bake header. Drag in a photo or use the picker.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

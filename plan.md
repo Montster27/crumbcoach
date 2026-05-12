@@ -2498,11 +2498,16 @@ mode), with HomeKit as the auto source.
 
 ### Stage 21 — Apple Watch companion
 
-WatchKit / SwiftUI for watchOS showing next-action prompts and the
-bake timer. Mark folds from the watch (taps in the wrist).
-Complications on the watch face for active bakes.
+**Deferred — sequence with Stage 28.** Watch architecture depends on
+the iPhone target decision: WatchOS apps officially pair with iPhone,
+not iPad, so building a Watch companion before Stage 28 is decided
+risks rework. Pulled out of plan-order for now; will reactivate
+alongside Stage 28's decision.
 
-Separate target in `project.yml`; shares Models + Core via a package.
+Original scope: WatchKit / SwiftUI for watchOS showing next-action
+prompts and the bake timer. Mark folds from the watch (taps in the
+wrist). Complications on the watch face for active bakes. Separate
+target in `project.yml`; shares Models + Core via a package.
 
 ### Stage 22 — Localization
 
@@ -2564,6 +2569,89 @@ Spotlight indexing of recipes, Handoff between devices,
 drag-and-drop photos into the editor / active bake. Small features
 individually; together they make CrumbCoach feel like a first-class
 iPad app.
+
+### Stage 27 — completion notes
+
+All three sub-features landed. Each is independently shippable; they
+share a single `Crumbcoach/Shared/SpotlightIndex.swift` helper since
+the same `NSUserActivity` payload drives Spotlight, Handoff, and the
+Stage 18 deep-link path.
+
+**Spotlight indexing:**
+
+- `SpotlightIndex.index([Recipe])` rebuilds the Core Spotlight
+  domain on every recipe-list change. Each recipe becomes a
+  `CSSearchableItem` with title, description (`<breadType> ·
+  <timeToBake>`), and keywords (bread type + tags + flour
+  ingredient names) so searches like "sourdough" or "rye" surface
+  the right hits without an exact-title match.
+- `SpotlightIndex.clear()` is the symmetric wipe used by
+  `state.startOver()`.
+- `AppState.init` calls `index(self.recipes)` once on launch so a
+  fresh install (or first run after this stage) populates the
+  index without the user needing to edit a recipe.
+- `AppState.saveSoon`'s debounced Task body re-indexes after every
+  save — recipe rename, delete, or import flows through.
+- Tap from Spotlight delivers `CSSearchableItemActionType` as the
+  `NSUserActivity.activityType`. `CrumbcoachApp.onContinueUserActivity`
+  handles both that and the custom `viewing-recipe` activity (used
+  by Handoff) through the same `SpotlightIndex.recipeId(from:)`
+  extractor.
+
+**Handoff:**
+
+- `SpotlightIndex.userActivity(for: recipe)` builds an
+  `NSUserActivity` with `activityType = "com.monty.crumbcoach.app.viewing-recipe"`,
+  the recipe id in `userInfo`, and the three eligibility flags
+  (`isEligibleForHandoff` / `isEligibleForSearch` /
+  `isEligibleForPrediction`). The `webpageURL` is the Stage 18
+  `crumbcoach://recipe/<id>` deep link so the same payload
+  resolves through every entry point.
+- `RecipeDetailScreen.body` declares the activity active while
+  viewing a recipe via the SwiftUI `.userActivity(...)` modifier.
+  The Handoff bubble appears on the user's iPhone / Mac when
+  they're signed into the same iCloud account and the activity is
+  current — tapping it on the other device fires
+  `onContinueUserActivity` in `CrumbcoachApp` and routes through
+  `SpotlightIndex.recipeId(from:)` to `state.openRecipe`.
+
+**Drag-and-drop photos:**
+
+- `RecipeEditorScreen.photoSection` accepts `Data` drops on the
+  thumbnail. On drop, decodes the data as `UIImage`, writes via
+  `state.persistence.savePhoto`, and sets `draft.photo` to the
+  returned filename. Failure path goes through the Stage 7
+  `state.photoErrorMessage` alert.
+- `ActiveBakeScreen.recipeHeaderCard` accepts `Data` drops on the
+  hero image. Calls `state.addPhoto(image, toStage: bake.currentStageIndex)`
+  so the photo lands in the current stage's photo strip with the
+  same persistence + error handling as the picker.
+- Both surfaces use `.dropDestination(for: Data.self)` (works on
+  iOS 16+; we're on iOS 17 baseline). External apps (Photos,
+  Safari, Files) drag through as image data.
+
+**Project hygiene:**
+
+- `project.yml` gained a `schemes:` block that declares the
+  `Crumbcoach` scheme so `xcodegen generate` produces the shared
+  scheme instead of relying on Xcode to auto-create one. Without
+  this, every `xcodegen generate` wiped the scheme and
+  `xcodebuild -scheme Crumbcoach` started failing. Status table
+  references to "scheme Crumbcoach" now survive re-generation.
+
+Known gaps deliberately left for later:
+
+- The Spotlight index doesn't include preferment ingredients or
+  stage notes. Searching "tangzhong" today finds recipes that
+  carry it as a tag, not those that have it only as a preferment
+  block. Easy to add when needed.
+- Handoff is one-direction (iPad → iPhone/Mac). When the iPhone
+  target lands (Stage 28), the bubble will resume on iPad too;
+  for now the iPhone side is a missing endpoint.
+- Drag-and-drop accepts only image data. Markdown / URL drops
+  could trigger recipe import (Stage 18's deep-link path) — worth
+  a polish pass after Stage 28 brings the share surface to
+  parity.
 
 ### Stage 28 — iPhone target decision
 
@@ -2759,7 +2847,7 @@ visibility.)
 |-------|----------|-------|-------|
 | 19    | done     |       | iOS widgets (Home Screen + Lock Screen). See "Stage 19 — completion notes". |
 | 20    | not started |    | HomeKit / Matter kitchen-temperature integration. |
-| 21    | not started |    | Apple Watch companion. |
+| 21    | deferred |       | Apple Watch companion — sequence with Stage 28. |
 | 22    | not started |    | Localization — first non-English language. |
 
 ### Phase D — commercial / Pro tier
@@ -2775,7 +2863,7 @@ visibility.)
 | Stage | Status   | Owner | Notes |
 |-------|----------|-------|-------|
 | 26    | not started |    | Recipe library expansion to ~50. |
-| 27    | not started |    | Native iPad citizenship — Spotlight, Handoff, drag-and-drop. |
+| 27    | done     |       | Native iPad citizenship. See "Stage 27 — completion notes". |
 | 28    | not started |    | iPhone target decision (support iPhone or stay iPad-exclusive). |
 
 ### Phase F — final ship prep

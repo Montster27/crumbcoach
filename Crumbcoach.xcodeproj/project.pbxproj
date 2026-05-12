@@ -43,6 +43,7 @@
 		B2445DF4A6D5D74A0DD7758F /* CrumbcoachWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D913A5F3A4F829CD6EE7866F /* CrumbcoachWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BB714908B319F9BF3B65C625 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0093B1B99EFC2C63FA59C8E /* Formatters.swift */; };
 		BEE3515262D0A5BC25A241B5 /* CrumbcoachShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 91D919F693B42F31EBCBA825 /* CrumbcoachShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C246ADE71F01518AB48968EB /* SpotlightIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A97BBED7C444F7374E01AD6A /* SpotlightIndex.swift */; };
 		C562ED283896364907A790FD /* SchedulerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC3F76C5810B5277DF329D0 /* SchedulerScreen.swift */; };
 		CB10F74CA88B6967B417961E /* Scheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 782A953BB1552920DE809133 /* Scheduler.swift */; };
 		CB9FD965826C7C5228EF1933 /* RecipeExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96B356540ED7DFEE25E66DD0 /* RecipeExporter.swift */; };
@@ -144,6 +145,7 @@
 		96B356540ED7DFEE25E66DD0 /* RecipeExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeExporter.swift; sourceTree = "<group>"; };
 		97219385550D5718B31E87C2 /* PhotoPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoPicker.swift; sourceTree = "<group>"; };
 		9CB14F2B4A89A459CF7ED8DC /* Conversion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversion.swift; sourceTree = "<group>"; };
+		A97BBED7C444F7374E01AD6A /* SpotlightIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightIndex.swift; sourceTree = "<group>"; };
 		B44538C5C8869AA87C62C832 /* SampleRecipes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleRecipes.swift; sourceTree = "<group>"; };
 		B69A2B13ACD1D0602AB310A3 /* CloudSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncManager.swift; sourceTree = "<group>"; };
 		B82F4176EEBA4B693D779AEF /* ActiveBakeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveBakeScreen.swift; sourceTree = "<group>"; };
@@ -206,6 +208,7 @@
 				23C5AEFFC58289A1DC11F164 /* RecipeImporter.swift */,
 				E3CED25451F4DCBF9620C604 /* ShareActivitySheet.swift */,
 				075FA20AD9E9C5E5A71B4076 /* SharedContainer.swift */,
+				A97BBED7C444F7374E01AD6A /* SpotlightIndex.swift */,
 				8977FD7A82F7F353CBFBBCB5 /* TelemetryManager.swift */,
 				27CB9DED75CAEE2A067C1257 /* WidgetSnapshot.swift */,
 			);
@@ -627,6 +630,7 @@
 				D89406F9FB7C4D8C38D38A6B /* SettingsScreen.swift in Sources */,
 				6AF36190BC8A3566470C932B /* ShareActivitySheet.swift in Sources */,
 				168F315B97B760CE2C3801B4 /* SharedContainer.swift in Sources */,
+				C246ADE71F01518AB48968EB /* SpotlightIndex.swift in Sources */,
 				41EE5A57F7DDD051F17D654B /* Starter.swift in Sources */,
 				037EF6A9B5B4AFBB4FECF392 /* StarterPrediction.swift in Sources */,
 				E6955EA3D981F37EFAAFC189 /* StarterScreen.swift in Sources */,

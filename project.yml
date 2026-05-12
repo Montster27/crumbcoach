@@ -6,6 +6,26 @@ options:
   developmentLanguage: en
   createIntermediateGroups: true
   generateEmptyDirectories: true
+  # Stage 27 — make sure xcodegen produces a shared scheme named Crumbcoach
+  # so `xcodebuild -scheme Crumbcoach` keeps working after re-generation.
+  # Without this xcodegen only emits the test scheme and Xcode auto-creates
+  # the others, which don't survive `xcodegen generate`.
+schemes:
+  Crumbcoach:
+    build:
+      targets:
+        Crumbcoach: all
+        CrumbcoachWidgets: all
+        CrumbcoachShareExtension: all
+        CrumbcoachTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - CrumbcoachTests
+    run:
+      config: Debug
+    archive:
+      config: Release
 settings:
   base:
     SWIFT_VERSION: "5.10"
