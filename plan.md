@@ -1485,6 +1485,23 @@ CloudKit container effort.
   stone; when Stage 21 / 28 adds an iPhone or Watch target, the
   team should revisit the model-layer rewrite.
 
+Post-Stage 15 follow-ups landed (post-review):
+
+- `NSFileCoordinator` now wraps both push and pull. Apple requires
+  coordinated access to ubiquity URLs — without it, the iCloud
+  daemon can return stale bytes mid-sync, and concurrent writes can
+  corrupt the file. `coordinate(writingItemAt: .forReplacing)` for
+  push, `coordinate(readingItemAt:)` for pull. Coordination errors
+  log + flip `status = .failed(…)`.
+- In-app push/pull serialization via `pushTask` and `pullTask`
+  chains. Each new call awaits the prior in-flight task before
+  running, so two saves spawned 0.5s apart can't race their own
+  `removeItem` + `copyItem` on the cloud URL. NSFileCoordinator
+  handles cross-process; the chain handles in-app ordering.
+- iCloud container identifier moved to `iCloud.com.monty.crumbcoach.app`
+  to match the personal-team signing prefix (see preamble). Fork
+  to a different team changes this alongside the bundle ids.
+
 ### Stage 16 — Live Activity
 
 `ActivityKit` widget showing the active bake's current stage, fold
@@ -1587,6 +1604,17 @@ main-app singleton.
 - "Live Activity disabled by user" doesn't surface anywhere in the
   app. Worth a Settings tile once we have telemetry to show how
   often users disable it.
+
+Post-Stage 16 follow-ups landed (post-review):
+
+- `AppState.reload(from:)` (Stage 15's cloud-pull hand-off) now
+  reconciles the Live Activity with the swapped `activeBake`. The
+  prior code blindly replaced `activeBake`, leaving the lock-screen
+  widget pointing at a bake that no longer existed in app state.
+  Now: if the bake id changed (cleared, or a different bake from
+  another device), end the existing activity and start fresh; if
+  the same id's internal state advanced, push an update. Stops the
+  cross-device "ghost bake" scenario the review caught.
 
 ### Stage 17 — Recipe URL import (JSON-LD)
 
