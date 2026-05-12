@@ -31,6 +31,8 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Connect to a Sourdough Sidekick over Bluetooth to read starter temperature and rise data.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Photograph your crumb, dough, and starter so CrumbCoach can analyze and log them.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

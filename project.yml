@@ -79,6 +79,10 @@ targets:
         NSCameraUsageDescription: "Photograph your crumb, dough, and starter so CrumbCoach can analyze and log them."
         NSPhotoLibraryUsageDescription: "Attach photos from your library to bakes and diagnostics."
         NSUserNotificationsUsageDescription: "Remind you when each bake step is due — folds, shaping, baking."
+        # Stage 25 — Sourdough Sidekick scaffolding. CoreBluetooth scan is
+        # gated behind the Settings pairing UI; we only request the
+        # permission the first time the user taps "Pair".
+        NSBluetoothAlwaysUsageDescription: "Connect to a Sourdough Sidekick over Bluetooth to read starter temperature and rise data."
         # Stage 16 — required for `Activity<>.request()` to succeed.
         NSSupportsLiveActivities: true
         # Stage 18 — `crumbcoach://` URL scheme for deep-link sharing and
@@ -188,3 +192,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "2"
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Crumbcoach.app/Crumbcoach"
+        # Without this, xcodebuild test refuses to sign the test bundle.
+        # No custom Info.plist is needed for unit tests — Xcode generates
+        # one with the right bundle id at build time.
+        GENERATE_INFOPLIST_FILE: YES

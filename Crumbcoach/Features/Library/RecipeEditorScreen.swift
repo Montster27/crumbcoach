@@ -344,7 +344,15 @@ struct RecipeEditorScreen: View {
         isImporting = true
         defer { isImporting = false }
         do {
-            let imported = try await RecipeImporter.import(from: url)
+            var imported = try await RecipeImporter.import(from: url)
+            // Stage 17.5b — opt-in second pass through Apple Foundation
+            // Models. `applyAIAssist` no-ops when the framework isn't
+            // available, but we also short-circuit on the toggle so we
+            // don't spin up sessions on devices that wouldn't gain
+            // anything from them.
+            if state.aiAssistEnabled && AIRecipeAssist.isAvailable {
+                imported = await RecipeImporter.applyAIAssist(to: imported)
+            }
             await MainActor.run {
                 applyImport(imported)
             }

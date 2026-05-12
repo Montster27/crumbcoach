@@ -9,6 +9,7 @@ import UIKit
 struct SettingsScreen: View {
     var state: AppState
     @ObservedObject private var cloudSync = CloudSyncManager.shared
+    @ObservedObject private var sidekick = SidekickManager.shared
     @State private var nameDraft: String = ""
     @State private var showLoadDemoConfirm: Bool = false
     @State private var showStartOverConfirm: Bool = false
@@ -18,6 +19,8 @@ struct SettingsScreen: View {
         VStack(alignment: .leading, spacing: 24) {
             profileCard
             kitchenCard
+            recipeImportCard
+            sidekickCard
             notificationsCard
             cloudSyncCard
             telemetryCard
@@ -140,6 +143,177 @@ struct SettingsScreen: View {
             .pickerStyle(.segmented)
             .frame(width: 220)
             .labelsHidden()
+        }
+    }
+
+    // MARK: Recipe import (Stage 17.5b)
+
+    /// AI assist toggle for the recipe importer. Hidden when the device
+    /// can't run Apple Foundation Models — older iPads, non-Apple-Silicon
+    /// iPads, anything pre-iOS 26 — so the toggle never claims a feature
+    /// that won't fire. Off by default; opt-in only.
+    @ViewBuilder
+    private var recipeImportCard: some View {
+        if AIRecipeAssist.isAvailable {
+            SurfaceCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Kicker("Recipe import")
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Use Apple Intelligence to fill recipe gaps")
+                                .font(Typography.ui(14, weight: .semibold))
+                                .foregroundStyle(Theme.slate900)
+                            Text("When the importer can't read a weight or a duration from a recipe URL, on-device Apple Intelligence estimates one. Estimates are flagged so you can double-check before baking.")
+                                .font(Typography.ui(12))
+                                .foregroundStyle(Theme.slate600)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                        Toggle("",
+                                isOn: Binding(
+                                    get: { state.aiAssistEnabled },
+                                    set: { state.setAIAssistEnabled($0) }
+                                ))
+                            .labelsHidden()
+                            .tint(Theme.primary)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Sidekick (Stage 25)
+
+    /// Sourdough Sidekick pairing card. Discovery scans the BLE airspace
+    /// for an advertiser matching the Sidekick name; live readings need
+    /// the FirstBuild protocol that hasn't been published yet, so the
+    /// card is explicit that "Paired" means "we can see your jar" rather
+    /// than "we're reading from it".
+    private var sidekickCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Kicker("Sourdough Sidekick")
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(sidekickHeadline)
+                            .font(Typography.ui(14, weight: .semibold))
+                            .foregroundStyle(Theme.slate900)
+                        Text(sidekickDetail)
+                            .font(Typography.ui(12))
+                            .foregroundStyle(Theme.slate600)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    sidekickPrimaryButton
+                }
+                if case .discovered(let name, _) = sidekick.phase {
+                    SoftDivider()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                                .font(Typography.ui(13.5, weight: .medium))
+                                .foregroundStyle(Theme.slate900)
+                            Text("Tap “Use this jar” to remember it. Live readings light up once FirstBuild publishes the Sidekick protocol.")
+                                .font(Typography.ui(11.5))
+                                .foregroundStyle(Theme.slate500)
+                        }
+                        Spacer()
+                        Button("Use this jar") {
+                            sidekick.acknowledgePairing(state: state)
+                        }
+                        .ccPrimary(compact: true)
+                    }
+                }
+                if state.sidekickPaired {
+                    SoftDivider()
+                    HStack {
+                        Text("Once FirstBuild publishes the Sidekick BLE protocol, live temperature + rise readings will flow into the Starter and Active Bake screens automatically.")
+                            .font(Typography.ui(11.5))
+                            .foregroundStyle(Theme.slate500)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button("Forget") {
+                            sidekick.forget(state: state)
+                        }
+                        .ccSecondary(compact: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private var sidekickHeadline: String {
+        if state.sidekickPaired {
+            return "Sidekick paired"
+        }
+        switch sidekick.phase {
+        case .warmingUp, .scanning:
+            return "Looking for your Sidekick"
+        case .discovered:
+            return "Found a Sidekick nearby"
+        case .notFound:
+            return "No Sidekick found"
+        case .unavailable:
+            return "Bluetooth unavailable"
+        case .paired:
+            return "Sidekick paired"
+        case .idle:
+            return "Pair your Sourdough Sidekick"
+        }
+    }
+
+    private var sidekickDetail: String {
+        if state.sidekickPaired, case .paired(let name, _) = sidekick.phase {
+            return "Pairing remembered for \(name). Live readings light up in a future update."
+        }
+        if state.sidekickPaired {
+            return "Pairing remembered. Tap “Rediscover” to confirm the jar is in range again, or “Forget” to clear."
+        }
+        switch sidekick.phase {
+        case .warmingUp:    return "Asking iPadOS for Bluetooth permission…"
+        case .scanning:     return "Scanning the room for ~8 seconds. Make sure the jar is on and within a few feet."
+        case .discovered:   return "Confirm this is your jar so we can light it up once the BLE protocol ships."
+        case .notFound:     return "Couldn't see a jar advertising. Check that the Sidekick is on and re-try the scan."
+        case .unavailable(let reason): return reason
+        case .paired:       return "Pairing remembered."
+        case .idle:
+            return "Discovery only — live starter temperature + rise readings arrive once FirstBuild publishes the Sidekick BLE protocol."
+        }
+    }
+
+    @ViewBuilder
+    private var sidekickPrimaryButton: some View {
+        if state.sidekickPaired {
+            switch sidekick.phase {
+            case .warmingUp, .scanning:
+                Button("Cancel") { sidekick.cancel() }
+                    .ccSecondary(compact: true)
+            default:
+                Button("Rediscover") { sidekick.beginPairing() }
+                    .ccSecondary(compact: true)
+            }
+        } else {
+            switch sidekick.phase {
+            case .warmingUp, .scanning:
+                Button("Cancel") { sidekick.cancel() }
+                    .ccSecondary(compact: true)
+            case .unavailable:
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Label("Open Settings", systemImage: "arrow.up.right.square")
+                }
+                .ccSecondary(compact: true)
+            case .discovered:
+                Button("Restart scan") { sidekick.beginPairing() }
+                    .ccSecondary(compact: true)
+            default:
+                Button("Pair") { sidekick.beginPairing() }
+                    .ccPrimary(compact: true)
+                    .disabled(!sidekick.isBluetoothLikelyAvailable)
+            }
         }
     }
 

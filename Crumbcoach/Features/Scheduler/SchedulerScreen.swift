@@ -34,15 +34,39 @@ struct SchedulerScreen: View {
 
     var recipe: Recipe? { state.recipe(recipeId) }
 
+    /// Honest caption for the schedule preview's "adjusted for…" line.
+    /// When the user has enough history with this recipe, the caption
+    /// shows the real percentage we're applying. Otherwise it admits
+    /// we're going off the recipe baseline only.
+    private var historyCaption: String {
+        guard let recipe else {
+            return "Schedule uses the recipe baseline at \(Int(kitchenTempC))°C."
+        }
+        if let pct = Analytics.historyAdjustmentPct(for: recipe, in: state.journal) {
+            let rounded = Int(pct.rounded())
+            if rounded == 0 {
+                return "Your bakes of this recipe match the recipe baseline at \(Int(kitchenTempC))°C."
+            }
+            let sign = rounded > 0 ? "+" : ""
+            return "Adjusted for your \(sign)\(rounded)% historical bulk variance at \(Int(kitchenTempC))°C in this kitchen."
+        }
+        return "Recipe baseline at \(Int(kitchenTempC))°C — log a few bakes to teach the scheduler your kitchen."
+    }
+
     var schedule: Schedule? {
         guard let recipe else { return nil }
+        // Stage 18.5b — derive the history adjustment from the user's
+        // actual journal entries for this recipe. Falls back to 0
+        // (no adjustment) when there's not enough data yet, instead of
+        // the prior hardcoded 15%.
+        let historyPct = Analytics.historyAdjustmentPct(for: recipe, in: state.journal) ?? 0
         let params = ScheduleParams(
             startTime: mode == .forward ? Date() : nil,
             targetEndTime: mode == .reverse ? targetDate : nil,
             kitchenTempC: kitchenTempC,
             coldRetard: coldRetard,
             useSidekick: useSidekick,
-            historyAdjustmentPct: 15
+            historyAdjustmentPct: historyPct
         )
         return mode == .reverse
             ? Scheduler.generateReverse(for: recipe, params: params)
@@ -230,7 +254,7 @@ struct SchedulerScreen: View {
                              : "Done by \(CCFormat.clockShort.string(from: schedule.endTime))")
                             .font(Typography.display(26, weight: .medium))
                             .foregroundStyle(Theme.slate900)
-                        Text("Adjusted for your +15% historical bulk variance at \(Int(kitchenTempC))°C in this kitchen.")
+                        Text(historyCaption)
                             .font(Typography.ui(13))
                             .foregroundStyle(Theme.slate700)
                     }

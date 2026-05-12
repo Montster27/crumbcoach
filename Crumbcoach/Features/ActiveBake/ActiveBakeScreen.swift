@@ -277,15 +277,17 @@ struct ActiveBakeScreen: View {
                                     adjustedDur: adjustedDur, baseDur: baseDur, saved: saved)
                 }
 
-                HStack(spacing: 10) {
-                    CCIconView(icon: .sparkle, size: 15, color: Theme.accent)
-                    Text("In your kitchen at \(Int(bake.kitchenTempC))°C, this dough has averaged 4h 45m bulk in your last 5 bakes — 30 min longer than the recipe baseline.")
-                        .font(Typography.ui(12.5))
-                        .foregroundStyle(Theme.slate700)
+                if let kitchenLine = kitchenInsightLine(bake: bake, recipe: recipe, stage: stage) {
+                    HStack(spacing: 10) {
+                        CCIconView(icon: .sparkle, size: 15, color: Theme.accent)
+                        Text(kitchenLine)
+                            .font(Typography.ui(12.5))
+                            .foregroundStyle(Theme.slate700)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Theme.slate50)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(Theme.slate50)
             }
         }
     }
@@ -355,6 +357,27 @@ struct ActiveBakeScreen: View {
     /// bake state. Previously a static demo string; now derives from the
     /// current bake-out (pulled forward by `saved` minutes) and the
     /// shortened stage duration.
+    /// Stage 18.5b — kitchen-learned timing for the current stage. Nil
+    /// when the user hasn't baked this recipe enough times to compute a
+    /// trustworthy average (threshold lives on `Analytics`). When the
+    /// recipe baseline is present we frame the line as a delta so the
+    /// difference is at-a-glance ("32 min slower than the recipe baseline").
+    private func kitchenInsightLine(bake: ActiveBake, recipe: Recipe, stage: Stage) -> String? {
+        let timings = Analytics.kitchenTimings(for: recipe.id, in: state.journal)
+        guard let timing = timings[bake.currentStageIndex] else { return nil }
+        let avgLabel = CCFormat.duration(timing.averageMinutes)
+        let bakesLabel = timing.bakes == 1 ? "1 bake" : "\(timing.bakes) bakes"
+        let kitchenLabel = "Your kitchen at \(Int(bake.kitchenTempC))°C has averaged \(avgLabel) for \(stage.kind.rawValue.lowercased()) in your last \(bakesLabel)"
+        let baseline = stage.durationMin
+        guard baseline > 0 else { return kitchenLabel + "." }
+        let delta = timing.averageMinutes - baseline
+        if abs(delta) < 5 {
+            return kitchenLabel + " — about the recipe baseline."
+        }
+        let sign = delta > 0 ? "longer" : "shorter"
+        return kitchenLabel + " — \(CCFormat.duration(abs(delta))) \(sign) than the recipe baseline."
+    }
+
     private func reflowLine(bake: ActiveBake, saved: Int, adjustedDur: Int) -> String {
         let pulled = Calendar.current.date(byAdding: .minute,
                                             value: -saved,

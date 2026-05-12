@@ -36,4 +36,15 @@ struct PersistedState: Codable {
     /// file. Defaults to false — opt-in model. Stage 15 uses the ubiquity
     /// Documents container, not full CloudKit; see plan.md.
     var cloudSyncEnabled: Bool = false
+    /// Stage 17.5b — whether the recipe importer is allowed to call into
+    /// Apple Foundation Models for the rows neither the regex nor the
+    /// static weight table could resolve. Defaults to false; the
+    /// Settings toggle is hidden when the device can't run the model.
+    var aiAssistEnabled: Bool = false
+    /// Stage 25 — set to true after the user successfully runs the
+    /// Sourdough Sidekick pairing flow in Settings. The actual BLE
+    /// peripheral identifier and characteristics map will land once
+    /// FirstBuild publishes the GATT protocol; for now we just record
+    /// that pairing was attempted so we can surface "Paired" status.
+    var sidekickPaired: Bool = false
 }

@@ -14,6 +14,13 @@ struct JournalEntry: Identifiable, Codable, Hashable {
     var note: String
     var photoAsset: String?
     var diagnosis: String          // "Well proofed" | "Underproofed bulk" | ...
+    /// Stage 18.5b — every stage's actual elapsed time (recipe-stage index
+    /// → minutes). Captured at `completeBake` from each
+    /// `ActiveBake.StageHistoryEntry`'s `enteredAt`/`exitedAt` deltas.
+    /// Optional + default so pre-Stage-18.5b persisted entries decode
+    /// cleanly; `Analytics.kitchenTimings` skips entries that are missing
+    /// or partial.
+    var stageDurations: [Int: Int]? = nil
 
     /// "Tue" or "3 days ago" style display string, computed from `bakedAt`.
     var dateDisplay: String {

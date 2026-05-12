@@ -7,7 +7,26 @@ import Foundation
 // All math here is deliberately simple — production version would use ridge or
 // Bayesian regression with proper confidence intervals.
 
+// Stage 18.5b — per-stage timing aggregate for a recipe. The Active Bake
+// screen / Recipe Detail / Scheduler surface these alongside the recipe's
+// own baseline so the user sees both "what the recipe expects" and "what
+// my kitchen actually does."
+struct KitchenTiming: Hashable {
+    let stageIndex: Int
+    let averageMinutes: Int
+    let medianMinutes: Int
+    let bakes: Int           // sample size — UI gates on >= threshold
+    let lastBakeMinutes: Int // most recent timing for "this week" context
+}
+
 enum Analytics {
+
+    /// Minimum number of recorded bakes for a recipe before we surface
+    /// kitchen-learned timings. Below this, the sample is too small to
+    /// claim "your kitchen typically…" — we leave the recipe baseline in
+    /// place and stay silent.
+    static let kitchenTimingThreshold = 3
+
 
     /// Average bulk minutes for a recipe in the user's history.
     static func avgBulkMinutes(for recipeId: String, in journal: [JournalEntry]) -> Int? {
@@ -98,5 +117,75 @@ enum Analytics {
         let h = minutes / 60
         let m = minutes % 60
         return m == 0 ? "\(h)h" : "\(h)h \(m)m"
+    }
+
+    /// Aggregate per-stage elapsed times across a recipe's journal entries.
+    /// Returns a map keyed by recipe-stage index for every stage that has
+    /// at least `kitchenTimingThreshold` recorded bakes; stages below the
+    /// threshold are excluded so the UI doesn't surface "your kitchen
+    /// typically…" with N=1.
+    static func kitchenTimings(for recipeId: String,
+                                in journal: [JournalEntry]) -> [Int: KitchenTiming] {
+        let entries = journal
+            .filter { $0.recipeId == recipeId }
+            .sorted { $0.bakedAt > $1.bakedAt }   // most recent first
+        guard entries.count >= kitchenTimingThreshold else { return [:] }
+
+        // Pivot: for each stageIndex, collect the recorded minutes and the
+        // most-recent bake's minutes (entries are already date-sorted).
+        var samples: [Int: [Int]] = [:]
+        var mostRecent: [Int: Int] = [:]
+        for entry in entries {
+            guard let durations = entry.stageDurations else { continue }
+            for (stageIndex, mins) in durations {
+                samples[stageIndex, default: []].append(mins)
+                if mostRecent[stageIndex] == nil {
+                    mostRecent[stageIndex] = mins
+                }
+            }
+        }
+
+        var out: [Int: KitchenTiming] = [:]
+        for (stageIndex, values) in samples where values.count >= kitchenTimingThreshold {
+            let sorted = values.sorted()
+            let avg = values.reduce(0, +) / values.count
+            let median: Int = {
+                let mid = sorted.count / 2
+                if sorted.count.isMultiple(of: 2) {
+                    return (sorted[mid - 1] + sorted[mid]) / 2
+                }
+                return sorted[mid]
+            }()
+            out[stageIndex] = KitchenTiming(
+                stageIndex: stageIndex,
+                averageMinutes: avg,
+                medianMinutes: median,
+                bakes: values.count,
+                lastBakeMinutes: mostRecent[stageIndex] ?? avg
+            )
+        }
+        return out
+    }
+
+    /// Compute the percentage adjustment to apply to a recipe's baseline
+    /// when scheduling — replaces the hardcoded `historyAdjustmentPct: 15`
+    /// the Scheduler used to ship with. Positive = kitchen is slower than
+    /// the recipe baseline (cooler / weaker starter / etc); negative =
+    /// faster. Nil when we don't have enough data to make a claim.
+    static func historyAdjustmentPct(for recipe: Recipe,
+                                      in journal: [JournalEntry]) -> Double? {
+        let timings = kitchenTimings(for: recipe.id, in: journal)
+        guard !timings.isEmpty else { return nil }
+
+        var deltas: [Double] = []
+        for (stageIndex, timing) in timings {
+            guard recipe.stages.indices.contains(stageIndex) else { continue }
+            let baseline = Double(recipe.stages[stageIndex].durationMin)
+            guard baseline > 0 else { continue }
+            let actual = Double(timing.averageMinutes)
+            deltas.append((actual - baseline) / baseline * 100)
+        }
+        guard !deltas.isEmpty else { return nil }
+        return deltas.reduce(0, +) / Double(deltas.count)
     }
 }

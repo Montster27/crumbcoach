@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00C1C3FD28690B5D530CBB17 /* RecipeEditorScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39B8284B5DC8DED148AD456 /* RecipeEditorScreen.swift */; };
 		037EF6A9B5B4AFBB4FECF392 /* StarterPrediction.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE38966AAAF15DBEF6D93361 /* StarterPrediction.swift */; };
+		0926C5890C4DC236FECF579C /* SidekickManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0835F3CF79FB8A7B3BB4B0F /* SidekickManager.swift */; };
 		0D8330963F70C9CA06446937 /* RecipeDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D7800F8DDE5524E3D5943D /* RecipeDetailScreen.swift */; };
 		168F315B97B760CE2C3801B4 /* SharedContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075FA20AD9E9C5E5A71B4076 /* SharedContainer.swift */; };
 		16BD6EFDB782B19B809972B7 /* IngredientWeightTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA6E2FEB15705140C3794AE /* IngredientWeightTable.swift */; };
@@ -35,6 +36,7 @@
 		95824A8D94443374D773FC27 /* Recipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7973C90D419364D1D26A9A6C /* Recipe.swift */; };
 		9AD4EF8E32D10CEFC92426FC /* ActiveBakeAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50C3FD4708DA17811C06C670 /* ActiveBakeAttributes.swift */; };
 		A5B5C5635E96F2FD5CCFDD89 /* CrumbcoachWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F30E8B73A3EF58C83338E118 /* CrumbcoachWidgetsBundle.swift */; };
+		ABD5B168B3C2DD5277D76A63 /* AIRecipeAssist.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC5DA74061EBD20B2103A03 /* AIRecipeAssist.swift */; };
 		AC57F78360E892383DFA5ABA /* PhotoPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97219385550D5718B31E87C2 /* PhotoPicker.swift */; };
 		AD845B6AD5A7F0E64D127649 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EF22208977E5D2D988A8D9 /* ShareViewController.swift */; };
 		AE2F6498DAE86579B1749102 /* BakersMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115BD8C7F9CA09D5076A6891 /* BakersMathTests.swift */; };
@@ -155,6 +157,7 @@
 		C5B3BA89377C796171D155EA /* Crumbcoach.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Crumbcoach.entitlements; sourceTree = "<group>"; };
 		C7B511A2980172378F1AF881 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		CB78BA9811297E2D3E46EA34 /* StarterScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StarterScreen.swift; sourceTree = "<group>"; };
+		CCC5DA74061EBD20B2103A03 /* AIRecipeAssist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIRecipeAssist.swift; sourceTree = "<group>"; };
 		CFD364E180BCC750C2DD93E0 /* DiagnosticScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticScreen.swift; sourceTree = "<group>"; };
 		CFE915BAFFF4A726E0C4AE2A /* Crumbcoach.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Crumbcoach.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D39B8284B5DC8DED148AD456 /* RecipeEditorScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeEditorScreen.swift; sourceTree = "<group>"; };
@@ -168,6 +171,7 @@
 		E777EE19984956678DCB6AE7 /* SchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerTests.swift; sourceTree = "<group>"; };
 		E9C9E32A2B4588D2DB77F206 /* LibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryScreen.swift; sourceTree = "<group>"; };
 		F0093B1B99EFC2C63FA59C8E /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
+		F0835F3CF79FB8A7B3BB4B0F /* SidekickManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidekickManager.swift; sourceTree = "<group>"; };
 		F30E8B73A3EF58C83338E118 /* CrumbcoachWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrumbcoachWidgetsBundle.swift; sourceTree = "<group>"; };
 		F658EB9DDD1D8EF96F4F5F68 /* CrumbcoachWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CrumbcoachWidgets.entitlements; sourceTree = "<group>"; };
 		F7E43398003F4E0301B7CEFD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -200,6 +204,7 @@
 			isa = PBXGroup;
 			children = (
 				50C3FD4708DA17811C06C670 /* ActiveBakeAttributes.swift */,
+				CCC5DA74061EBD20B2103A03 /* AIRecipeAssist.swift */,
 				B69A2B13ACD1D0602AB310A3 /* CloudSyncManager.swift */,
 				439ABAC65F6773435C509C39 /* Haptics.swift */,
 				7AA6E2FEB15705140C3794AE /* IngredientWeightTable.swift */,
@@ -210,6 +215,7 @@
 				23C5AEFFC58289A1DC11F164 /* RecipeImporter.swift */,
 				E3CED25451F4DCBF9620C604 /* ShareActivitySheet.swift */,
 				075FA20AD9E9C5E5A71B4076 /* SharedContainer.swift */,
+				F0835F3CF79FB8A7B3BB4B0F /* SidekickManager.swift */,
 				A97BBED7C444F7374E01AD6A /* SpotlightIndex.swift */,
 				8977FD7A82F7F353CBFBBCB5 /* TelemetryManager.swift */,
 				1E87544E6475A7B8AC882BE2 /* VisionFeaturePrint.swift */,
@@ -595,6 +601,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ABD5B168B3C2DD5277D76A63 /* AIRecipeAssist.swift in Sources */,
 				9AD4EF8E32D10CEFC92426FC /* ActiveBakeAttributes.swift in Sources */,
 				F04976CC83D2B6D005F4E497 /* ActiveBakeScreen.swift in Sources */,
 				FD4CD93373FA4E9786D7B03C /* Analytics.swift in Sources */,
@@ -633,6 +640,7 @@
 				D89406F9FB7C4D8C38D38A6B /* SettingsScreen.swift in Sources */,
 				6AF36190BC8A3566470C932B /* ShareActivitySheet.swift in Sources */,
 				168F315B97B760CE2C3801B4 /* SharedContainer.swift in Sources */,
+				0926C5890C4DC236FECF579C /* SidekickManager.swift in Sources */,
 				C246ADE71F01518AB48968EB /* SpotlightIndex.swift in Sources */,
 				41EE5A57F7DDD051F17D654B /* Starter.swift in Sources */,
 				037EF6A9B5B4AFBB4FECF392 /* StarterPrediction.swift in Sources */,
@@ -669,6 +677,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -895,6 +904,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

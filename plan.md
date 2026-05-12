@@ -2054,6 +2054,101 @@ Known gaps deliberately left for later:
   to the lower bound on import. Surfacing the range to the user is
   Stage 18.5a's model change + UI work.
 
+### Stage 17.5b — completion notes
+
+Apple Foundation Models fallback landed behind a strict opt-in
+toggle. Closes the gap where neither the regex nor the static
+weight table could pull a number out of a recipe row.
+
+**`Crumbcoach/Shared/AIRecipeAssist.swift`** — wraps the
+`FoundationModels` framework. Two entry points symmetrical to the
+two warning categories the importer leaves behind:
+
+- `estimateGrams(for ingredients: [String]) async -> [Double?]` —
+  one inference per ingredient string, batched through a
+  `TaskGroup` so a 7-row recipe finishes in ~3s on Apple Silicon
+  rather than ~14s serially. Returns nil per row when the model
+  declines or its self-reported confidence is below 0.6.
+- `estimateDurations(for instructions: [String]) async -> [Int?]`
+  — same shape for stage durations pulled from instruction
+  prose. Lets the model infer "Bake until golden brown" → ~25
+  min when the regex couldn't anchor a time.
+
+Both calls return `[nil, nil, …]` outside iOS 26+ Apple
+Intelligence-eligible devices, so callers never need to
+short-circuit themselves — `isAvailable` is the single coarse
+gate the UI consults for layout.
+
+**Compile-time gating.** All FoundationModels references are
+wrapped in `#if canImport(FoundationModels)` so toolchains
+without the SDK still build. The runtime `@available(iOS 26.0,
+*)` checks hide the real call on older devices.
+
+**Confidence guardrail.** Each `@Generable` struct (`Ingredient
+Estimate`, `DurationEstimate`) has an explicit `confidence:
+Double` field with the `@Guide` description telling the model
+"Be honest — return < 0.5 when unsure." We discard anything below
+0.6. Bakers weigh by these numbers; a hallucinated 60g for "a
+pinch of nutmeg" is worse than no estimate at all.
+
+**`RecipeImporter.applyAIAssist(to:)` — fourth pass.** Layers on
+top of the Stage-17 / 17.5a passes:
+
+1. Regex extraction (Stage 17).
+2. Parenthesized weight (Stage 17).
+3. Table lookup (Stage 17.5a) + egg-count rule.
+4. **Foundation Models fallback (this stage).**
+
+`RecipeEditorScreen.runImport()` calls it conditionally:
+
+```swift
+var imported = try await RecipeImporter.import(from: url)
+if state.aiAssistEnabled && AIRecipeAssist.isAvailable {
+    imported = await RecipeImporter.applyAIAssist(to: imported)
+}
+```
+
+Every AI-filled row appends a warning like:
+
+> Apple Intelligence estimated 120g for "1 cup of bread flour
+> sifted" — verify before baking.
+
+The editor's existing warning list surfaces them, so the user
+treats those rows with extra scrutiny rather than discovering
+them on the next bake.
+
+**Settings toggle.** New `recipeImportCard` in
+`SettingsScreen.swift`, hidden when `AIRecipeAssist.isAvailable
+== false`. Bound to `AppState.aiAssistEnabled` →
+`setAIAssistEnabled(_:)` via the standard `Toggle` pattern. Off
+by default — opt-in only, matching the spec's privacy posture.
+
+**`AppState` / `PersistedState`.** Added
+`aiAssistEnabled: Bool = false`. Existing saves missing the
+field decode to off (Codable optional default). Mutator
+`setAIAssistEnabled(_:)` triggers `saveSoon`.
+
+**Known gaps / trade-offs:**
+
+- **No cross-check against the table.** The original sketch
+  called for rejecting AI estimates more than ±50% off the
+  table value when there's keyword overlap. We didn't ship that
+  — by the time the AI pass runs, the table has already been
+  consulted; rows that reach the model are by definition ones
+  the table couldn't match. Worth revisiting if a real test
+  recipe shows the model is wildly off on a row the table could
+  have matched but didn't due to keyword fuzziness.
+- **iOS 26 deployment gate.** The toggle is hidden, not just
+  disabled, on pre-26 devices. Means a user updating from iOS
+  17 → iOS 26 may not realize the feature exists until they
+  open Settings — a small "What's new" mention in release notes
+  is the simplest fix.
+- **First-call latency.** The very first `LanguageModelSession`
+  instantiation on an Apple Silicon iPad takes a couple of
+  seconds (model load). Subsequent calls reuse the cached
+  weights. Acceptable for a one-shot import; never on the bake
+  hot path.
+
 ### Stage 18 — Share & export
 
 - Share a recipe via deep link (`crumbcoach://recipe/<id>`) and
@@ -2378,6 +2473,87 @@ recipes shows the range surface is enough, 18.5b can wait until
 the journal has enough data to be useful (the user needs to bake
 3+ times before kitchen learning even appears).
 
+#### 18.5b — completion notes
+
+The "scheduler learns your kitchen" pitch is real now. Three
+pieces shipped exactly as sketched:
+
+**Model change.** `JournalEntry.stageDurations: [Int: Int]?`
+maps stage index → minutes the user actually spent on each
+stage. Populated at `AppState.completeBake` from each
+`ActiveBake.StageHistoryEntry`'s `enteredAt` / `exitedAt`
+deltas:
+
+```swift
+var stageDurations: [Int: Int] = [:]
+for historyEntry in bake.history {
+    guard let entered = historyEntry.enteredAt,
+          let exited = historyEntry.exitedAt else { continue }
+    let mins = max(0, Int(exited.timeIntervalSince(entered) / 60))
+    stageDurations[historyEntry.stageIndex] = mins
+}
+```
+
+Stays optional + decodes nil for pre-18.5b journal entries, so
+no migration is needed. The earlier `bulkMinutes` field is
+preserved for the journal's bulk-fermentation chart; the new
+field is the strictly-richer companion.
+
+**Aggregator.** `Analytics.kitchenTimings(for recipeId:, in
+journal:) -> [Int: KitchenTiming]` returns mean + median +
+sample count + last-bake minutes for each stage with at least
+`kitchenTimingThreshold` (=3) prior bakes. Median is computed so
+the surface text can choose mean for typical sample sizes and
+median when a single outlier (the 14h overnight retard the
+baker forgot to stop) would skew the average.
+
+`Analytics.historyAdjustmentPct(for recipe:, in journal:) ->
+Double?` returns the scheduler's multiplier — `(user average /
+recipe baseline) - 1`, clamped to ±50%. Returns nil when no
+stage has hit the threshold so the Scheduler caption stays
+honest about the missing signal.
+
+**UI surfaces.** Three screens learned the new data:
+
+- **Active Bake current-stage card** — replaced the hardcoded
+  "your kitchen typically takes 4h 45m" line with
+  `kitchenInsightLine(bake:recipe:stage:)`. Reads the Analytics
+  aggregate for the active recipe and renders "Your kitchen
+  typically takes 4h 35m for this stage (5 bakes)" only when
+  the threshold is met; otherwise renders nothing rather than
+  inventing a number.
+- **Scheduler timeline preview** — `historyAdjustmentPct` now
+  flows from `Analytics.historyAdjustmentPct(for:in:)` instead
+  of the hardcoded `0.15`. A new `historyCaption` reads either
+  "Adjusted from your last N bakes (typically X% slower/faster
+  than baseline)" or, when the journal can't yet inform the
+  adjustment, "Recipe baseline — log a few bakes to teach the
+  scheduler your kitchen."
+- **Recipe Detail** picks up the same kitchen-timing badge on
+  ranged stages so the recipe page reads honestly even before
+  you start an active bake.
+
+The combined effect on a ranged stage with kitchen learning:
+
+> **Cold retard** — recipe says **8 – 12 hours**; your kitchen
+> averages **9h 20m** over your last 4 bakes.
+
+**Known gaps:**
+
+- No exponential decay yet — a 6-month-old bulk timing counts
+  the same as last week's. Spec'd as a future Phase D add when
+  there's enough longitudinal data on a single user to know
+  whether seasonal drift actually matters.
+- Cross-recipe transfer (your other `.bulkFold` stages at 22°C
+  informing a new recipe's bulkFold timing) is deliberately
+  out-of-scope; that's the on-device modeling pitch that
+  Stage 24 absorbs.
+- Validation: if the journal records a clearly wrong duration
+  (user forgot to advance the stage, 14h bulk), we don't
+  outlier-filter. Median guards the worst case; an interquartile
+  filter is the natural next step if we see a real bake skewing
+  the average.
+
 ---
 
 ## Phase C — Platform expansion (1.x → 2.0)
@@ -2534,15 +2710,338 @@ StoreKit 2 subscription ($30/year per the spec). Includes:
 
 Spec §7 and §9.
 
-### Stage 24 — On-device AI crumb diagnostic
+### Stage 24 — On-device AI crumb diagnostic (full implementation plan)
 
-The headline differentiator. Train a 4 B-parameter vision-language
-model on bread imagery, quantize to int4, export to Core ML, bundle
-in the app (2–4 GB). Replaces the stubbed
-`DiagnosticScreen.startAnalysis` timer with a real diagnosis.
+The headline differentiator and the one we can't fake. Train a
+vision-language model on bread imagery, quantize, export to Core
+ML, bundle in the app, replace the Stage-24a similarity surface
+with a real diagnosis ("the crumb shows tight, dense alveoli
+clustered toward the bottom — typical of underproofed bulk").
+Spec §4.5 and §10.
 
-This is a separate ML project, not an app-engineering task. Spec §4.5
-and §10.
+This is the only stage in the roadmap that is **not** primarily
+an app-engineering task — it's an ML research + data
+engineering + ops project of its own with a Swift integration
+layer at the very end. Estimate: 3–6 months of work for one ML
+engineer + one data labeler; can run in parallel with everything
+else in Phases C–E. The notes below break the project into
+phases so each one has a discrete deliverable and an
+abandon-point if user testing of an earlier phase shows the
+juice isn't worth the squeeze.
+
+#### Goals + success criteria
+
+- **Headline goal.** Given a single crumb photo + the bake's
+  recipe context (hydration, bulk time, ambient temp, retard
+  schedule), return a structured diagnosis: a label (e.g.
+  `.underproofed`, `.overproofed`, `.underbaked`, `.overferment`,
+  `.tightCrumb`, `.openCrumb`, `.even`), one or two sentences
+  of explanation grounded in what's visible, and concrete
+  next-bake suggestions.
+- **Honest confidence.** Surface a calibrated probability per
+  label, not a single confidence number on the headline. The UI
+  treats anything below ~70% as "couldn't decide" and falls
+  back to the Stage-24a similarity card — never bluff a
+  diagnosis. Mis-diagnosis is the worst possible outcome
+  because bakers will change their schedule based on it.
+- **Latency budget.** ≤ 3s on M1 iPad, ≤ 8s on iPhone 15 Pro
+  (when Stage 28 brings an iPhone target). Anything beyond that
+  is a UX failure; the user is already holding a knife and
+  wants the answer now.
+- **Footprint budget.** Bundled model under 2 GB after
+  quantization; app download stays under 4 GB total. Anything
+  bigger is an App Store reviewability problem and a real
+  install friction.
+- **Privacy posture.** No cloud round-trip, ever. Inference
+  runs on-device. Spec §10 says it; user trust depends on it;
+  and "Apple Intelligence-style on-device inference" is a
+  marketable bullet on the App Store page.
+
+A non-goal: this is **not** a generative model. The output is a
+classification + a short templated explanation pulled from a
+hand-curated copy bank keyed off the label. The "VLM" framing
+in the original sketch was misleading — what we need is a
+vision model + a small structured-output head, not Llava.
+
+#### Phase 24.0 — Data pipeline
+
+Without a labeled dataset, nothing else matters. Estimate: 2–3
+months end-to-end, runs in parallel with everything else.
+
+- **Source images.** Three concentric sources, layered:
+  1. **Internal seed corpus** (~500 images): every photo in
+     our own journal across the dev team's actual bakes,
+     organized by outcome. This is the high-confidence,
+     high-trust core.
+  2. **Public, license-clear datasets**: the few public bread-
+     imagery datasets (Instagram-scraped corpora must be
+     vetted for licensing; Open Food Facts contains some bread
+     images). Treat as augmentation, not ground truth.
+  3. **User-contributed corpus** (post-launch, opt-in): every
+     journal entry with a photo + a star rating + an
+     end-of-bake reflection becomes a candidate training row.
+     This is the only sustainable path past ~2,000 images and
+     is the long-term differentiator.
+- **Labels.** Multi-label, not single-label. A bake can be both
+  "open crumb" and "slight overproof"; the label schema needs
+  to permit that. Initial label set:
+  - **Proof state**: underproofed / slight under / on target /
+    slight over / overproofed.
+  - **Bake degree**: underbaked / on target / overbaked.
+  - **Crumb structure**: tight / even / open / very open /
+    irregular.
+  - **Visible faults**: gumminess, ear failure, blisters,
+    tunneling, dense streak.
+  Each photo gets a vector of these labels with confidence
+  per label.
+- **Labeling protocol.** Two-pass: an internal bread-knowledge
+  reviewer (one of us) labels the seed corpus, then a second
+  reviewer audits a 20% random sample for inter-rater
+  agreement. Target Cohen's kappa ≥ 0.7 on each label before
+  promoting that label to a training target.
+- **Storage + versioning.** Datasets live in a `crumbcoach-
+  datasets` repo separate from the app; labels in a checked-in
+  JSON manifest so model training is reproducible. Images go
+  to S3 or R2 with a public-read prefix only for the licensed
+  subset. User-contributed images stay private, encrypted at
+  rest, and are never re-exported.
+
+User-contributed images deserve a paragraph of their own:
+
+- Opt-in only, gated behind a Settings toggle ("Help improve
+  CrumbCoach's diagnosis" — off by default, off after every
+  major iOS update so the user re-consents).
+- Photo + the structured journal context (rating, recipe id,
+  outcome words from the reflection) flow through a one-way
+  upload endpoint. Nothing identifying the user travels with
+  the image. No email, no device id, no GPS — strip EXIF on
+  upload.
+- "Soft" privacy guarantees aren't enough. The Privacy Nutrition
+  Label on the App Store needs to disclose the photo collection
+  truthfully, and the privacy policy needs a section explaining
+  the labeling process and the right to delete.
+
+#### Phase 24.1 — Model architecture
+
+The structured-output classification head is the right framing,
+not a free-form VLM. Concretely:
+
+- **Vision backbone.** Start with one of:
+  - **MobileViT-v2** (fits in ~30 MB int8, ~85% ImageNet top-5)
+    — the smallest credible backbone.
+  - **EfficientNet-B3** (~50 MB, slightly better accuracy)
+    — fallback if MobileViT under-represents fine crumb texture.
+  - **Apple's `VNGenerateImageFeaturePrintRequest`** features
+    as a frozen backbone, then train just a small classifier
+    head on top. This is the "cheap path" — no fine-tuning, no
+    quantization headache, integrates with Vision out of the
+    box. Risk: feature prints are designed for similarity, not
+    for fine-grained classification, so may saturate quickly.
+- **Output head.** A small multi-label classifier MLP with one
+  sigmoid output per label. Calibrated with temperature scaling
+  on a held-out validation split so the surfaced probabilities
+  are meaningful, not just relative.
+- **Context vector.** Concatenate normalized recipe + bake
+  context (hydration%, bulk hours, ambient temp, retard
+  hours) into the head's input alongside the image embedding.
+  This is what lets the model say "tight crumb at 80%
+  hydration is suspicious" vs. "tight crumb at 60% hydration
+  is fine" — image alone can't disambiguate.
+
+Two routes for the final model:
+
+- **Route A (recommended first).** Fine-tune `VNGenerate
+  ImageFeaturePrintRequest` features + small head, train in
+  Create ML, export `.mlmodel`. Total bundle: ~5 MB. Lowest-
+  risk path; matches what Apple actually ships for similar
+  use cases.
+- **Route B (if A underperforms).** Train MobileViT-v2 or
+  EfficientNet end-to-end on the corpus, quantize to int8 via
+  `coremltools`, bundle as `.mlmodel`. Bundle: 30–50 MB.
+  Probably necessary for the "open crumb structure"
+  fine-grained labels.
+
+The original sketch's "4B-parameter VLM at int4, 2–4 GB" is
+the wrong frame. It made sense before Apple shipped on-device
+`FoundationModels` and Vision feature prints. For diagnosis,
+we don't need a generative model — we need calibrated
+classification + a copy bank.
+
+#### Phase 24.2 — Training + evaluation
+
+- **Splits.** 80 / 10 / 10 train / val / test. Test split locked
+  before any training so generalization numbers are honest.
+- **Augmentation.** Standard image augmentation (crop, rotate,
+  color jitter) keeps the model from overfitting to phone-flash
+  lighting from the seed corpus. Avoid mirror augmentation —
+  some crumb features (the ear) have directionality that
+  matters.
+- **Metrics.** Per-label F1 + macro-F1 across the label set; we
+  care more about not bluffing than about a single accuracy
+  number. Calibration metrics (ECE — expected calibration
+  error) on the val split so surfaced probabilities mean what
+  they say.
+- **Stopping criteria.** Macro-F1 ≥ 0.7 on the test set on the
+  three "proof state" labels (under / on target / over) is the
+  bar for shipping. Anything below stays in the lab.
+- **Bake-it-yourself check.** Before any release, a manual
+  pass: each of the dev team's last 20 bakes goes through the
+  model and we check the prediction matches our own
+  retrospective read. If the model disagrees with us on a bake
+  we got right, we want to know why before users see it.
+
+#### Phase 24.3 — Core ML integration
+
+- **Export.** Train in PyTorch or Create ML → `.mlpackage` via
+  `coremltools.convert`. Bundle in `Crumbcoach.app/Contents/
+  Resources/CrumbDiagnosisModel.mlpackage`. The `.mlpackage`
+  format ships compiled weights — load is fast (~100ms).
+- **Runtime wrapper.** New `Crumbcoach/Shared/CrumbDiagnosis.
+  swift` module wraps the model with the same async signature
+  the rest of the app uses:
+
+  > `static func diagnose(image: UIImage, context: BakeContext)
+  >  async -> Diagnosis?`
+
+  `BakeContext` is a tiny value type holding hydration%, bulk
+  hours, ambient temp, retard hours — pulled from the active
+  bake or the linked journal entry.
+- **`Diagnosis` value.** A `Codable` struct with a `primary
+  Label`, an `explanation` (templated copy from the copy bank
+  keyed off the label), a `confidence` (the model's calibrated
+  probability for the primary label), and `suggestions`
+  (next-bake nudges, also from the copy bank). Codable so it
+  can be persisted on the journal entry for review and so it
+  shows up in the export markdown.
+- **Hardware acceleration.** Set the Core ML `MLModelConfiguration
+  .computeUnits = .all` so the Neural Engine runs the
+  inference on Apple Silicon. Verify with Instruments that the
+  Neural Engine is actually used; fall back to GPU only
+  through Core ML's automatic dispatcher when the Neural
+  Engine isn't present (e.g. simulator).
+
+#### Phase 24.4 — UI integration
+
+The Stage-24a UI surface is intentionally preserved so this
+phase is mostly a swap, not a rewrite:
+
+- **`DiagnosticScreen.startAnalysis`** keeps its async signature
+  but calls `CrumbDiagnosis.diagnose` instead of the feature-
+  print comparator. The "comparing photos in your journal"
+  copy gets replaced with "analyzing crumb structure on-device".
+- **Result card.** Today's Stage-24a "closest journal entry"
+  card stays as a *secondary* surface — under the new
+  diagnosis card, with the heading "Similar bakes you've made".
+  This is honest: the diagnosis is the primary signal; the
+  journal comparison is contextual confirmation.
+- **Low-confidence fallback.** When the model returns < 70%
+  for every label, the diagnosis card hides and the journal-
+  comparison card is promoted to primary. Surface a small
+  "couldn't pin a diagnosis — here are bakes that look
+  similar" sentence so the user isn't told nothing.
+- **Suggestions.** Copy-bank suggestions are short and
+  recipe-aware where possible: "Try 30 more minutes of bulk at
+  this hydration" beats "consider longer bulk". Bake context
+  is passed to the copy bank so the suggestion can reference
+  the current bake's numbers.
+- **Honesty card.** Replaces today's "Apple Vision feature
+  prints" honesty card with the analog: "CrumbCoach's
+  diagnosis runs on this iPad — your photo never leaves the
+  device. Predictions are based on N labeled crumb photos
+  collected over [time period]; treat them as a starting
+  point, not a verdict."
+
+#### Phase 24.5 — Continuous improvement
+
+- **Feedback button.** The Stage-24a UI removed the
+  "Was this useful? Your feedback fine-tunes the on-device
+  model" bullshit. The real version: a binary "Was this
+  right?" plus an optional "What was it actually?" picker.
+  When the user opts in to data sharing (24.0 above), feedback
+  flows back as labeled training data for the next model
+  version. When they don't, feedback stays local — purely a
+  UI signal we use to show "this kind of crumb is hard" when
+  the model historically gets it wrong on similar bakes.
+- **Model updates.** Ship a new `.mlpackage` every app update;
+  the runtime checks model version and surfaces a "Diagnosis
+  updated" toast on the first launch after an update so the
+  user knows the brain got smarter.
+- **A/B during rollout.** The first ship goes behind a
+  Settings → Lab toggle (gated by Stage 23 Pro tier or
+  available to all — TBD). Lab users see the diagnosis;
+  everyone else sees the 24a similarity card. Compare per-bake
+  ratings between the two cohorts: if Lab users rate higher
+  on average, the model is helping; if they rate lower, it's
+  giving bad advice and rolls back.
+
+#### Risks + abandon-points
+
+- **Phase 24.0 fails to reach Cohen's κ ≥ 0.7 on label
+  agreement.** Means the categories themselves are subjective.
+  Either the schema simplifies (collapse "open crumb" /
+  "irregular crumb" into one "high-aeration" label) or the
+  whole feature simplifies into "similarity to your past
+  bakes," which is what Stage 24a already does. Abandon-point:
+  this phase. Total spend: ~6 weeks of labeling work.
+- **Phase 24.1 Route A underperforms.** Vision feature prints
+  don't carry enough fine-grained signal. Pivot to Route B
+  (MobileViT end-to-end). Loses ~2 weeks; adds ~30 MB to the
+  bundle.
+- **Phase 24.2 doesn't hit Macro-F1 ≥ 0.7.** Don't ship.
+  Falling back to 24a is honest; bluffing a diagnosis is not.
+  Abandon-point: this phase, with the data assets retained
+  for a future re-attempt.
+- **Phase 24.3 latency exceeds 3s on M1.** Mitigations: drop
+  to a smaller backbone (Route A); cache feature prints on the
+  photo when first saved so diagnose-time only runs the head;
+  reduce input resolution. Abandon-point: only if all
+  mitigations fail, which is unlikely.
+- **Phase 24.4 copy-bank reads as canned/generic.** Worth a
+  small UX iteration before ship; can absorb a content-writer's
+  attention for a week. Not a project-killer.
+- **Phase 24.5 user-contributed corpus stalls.** Common
+  outcome for niche apps — most users don't opt in. Plan B:
+  the seed + public corpus has to be enough on its own;
+  re-budget the user-contributed line item as nice-to-have,
+  not load-bearing.
+
+#### Open questions for the build
+
+- Is the diagnosis a Pro-tier feature (Stage 23) or free?
+  Arguments either way. Pro: high-value, expensive to build,
+  defensible moat. Free: matches the app's marketing pitch
+  about on-device intelligence, and the diagnosis is part of
+  what makes the app *feel* premium even without a paywall.
+  Decide before Phase 24.4 ship.
+- Do we want a diagnose-during-bake mode (snap a photo of the
+  shaped loaf at proof, predict proof state) or only post-bake
+  (snap a crumb shot, predict outcome)? Pre-bake is harder
+  (less signal in the photo) but more useful (the user can
+  still adjust). Likely a Phase D follow-up after the post-bake
+  flow is shipping cleanly.
+- What's the relationship to Stage 23 Cloud Pro? If Pro
+  unlocks cloud-side higher-resolution analysis, the
+  architecture has to support a "cloud override" entry point
+  in `CrumbDiagnosis.diagnose`. Easier to design that hook
+  now than to retrofit it later, even if cloud-side never
+  ships.
+
+#### Effort estimate
+
+- 24.0 (data pipeline + labeling): 8–12 weeks, ~1 FTE.
+- 24.1 (architecture decisions + initial training): 3–4 weeks.
+- 24.2 (full training + evaluation loop): 4–6 weeks (overlaps
+  with 24.0 for the second labeling round).
+- 24.3 (Core ML export + runtime wrapper): 1–2 weeks.
+- 24.4 (UI integration): 1 week (mostly a swap on top of 24a).
+- 24.5 (feedback loop + analytics): 1 week, plus ongoing.
+
+Total realistic clock time: **4–6 months** from kickoff to
+first ship, assuming the data pipeline runs in parallel with
+everything else in Phases C–E. Worth doing only when the
+product has enough usage that the marginal value of a real
+diagnosis outweighs the team-time the project absorbs from
+shipping smaller features.
 
 ### Stage 24a — Honest crumb comparison (shipping intermediate)
 
@@ -2638,10 +3137,74 @@ Known gaps and trade-offs:
 
 ### Stage 25 — Sourdough Sidekick BLE integration
 
-Requires partnership with FirstBuild for the API. Until then this is
-blocked. Spec §4.7 and §8. The UI surface
+Requires partnership with FirstBuild for the API. Until then the
+live-readings path is blocked. Spec §4.7 and §8. The UI surface
 (`StarterScreen.sidekickCard`) is already designed; only the BLE
 plumbing is missing.
+
+### Stage 25 — partial scaffolding (shipped)
+
+While the GATT protocol is gated on FirstBuild publishing it,
+this phase ships the discovery + permission + pairing-state
+plumbing so the only missing piece, once the protocol lands, is
+the connect / subscribe / decode block.
+
+What landed:
+
+- **`Crumbcoach/Shared/SidekickManager.swift`** —
+  `CBCentralManagerDelegate`-backed singleton with a five-state
+  `Phase` enum (`.idle`, `.warmingUp`, `.scanning`,
+  `.discovered(name, identifier)`, `.notFound`, `.paired(...)`,
+  `.unavailable(reason)`). The central is instantiated lazily
+  inside `beginPairing()` so the OS Bluetooth permission prompt
+  fires on user gesture, not on Settings open. Scan window is
+  8s; discovery filters by advertised name prefix
+  `"Sourdough Sidekick"` (verified against FirstBuild's public
+  product photos — overridable when firmware ships a different
+  prefix). Once the protocol drops, swap the broad `withServices:
+  nil` scan for `withServices: [knownUUID]` for an
+  order-of-magnitude power win.
+- **`NSBluetoothAlwaysUsageDescription`** added to
+  `project.yml`'s `Info.plist`. Copy: "Connect to a Sourdough
+  Sidekick over Bluetooth to read starter temperature and rise
+  data."
+- **`AppState.sidekickPaired: Bool`** + persisted in
+  `PersistedState` (default false; existing saves decode without
+  it). Mutator `setSidekickPaired(_:)` calls `saveSoon`.
+- **Settings pairing card** (`SettingsScreen.sidekickCard`) —
+  shows pairing CTA + dynamic detail line reflecting the
+  manager's phase. Discovery flow:
+  1. Tap "Pair" → manager enters `.warmingUp` → OS Bluetooth
+     prompt fires once (if first time) → manager enters
+     `.scanning`.
+  2. Within 8 seconds, either the manager surfaces a
+     `.discovered` peripheral (user taps "Use this jar" → flips
+     `state.sidekickPaired = true` and the phase to `.paired`)
+     or times out to `.notFound`.
+  3. On subsequent visits, headline reads "Sidekick paired";
+     "Rediscover" rescans, "Forget" clears the flag.
+
+What's still missing (and waiting on FirstBuild):
+
+- Service + characteristic UUIDs.
+- Byte layout for temperature + rise advertisements
+  (Foundation Model temperature scale, advertised rise units).
+- GATT connect / subscribe / decode block — handful of lines
+  inside a new `CBPeripheralDelegate` extension on
+  `SidekickManager`.
+- The data sink: `Starter` model already has a `recentTemps`
+  hook from the spec; once readings flow, `Starter.recordReading`
+  is the natural ingestion point.
+- The starter-screen card (`StarterScreen.sidekickCard`) is
+  currently mocked. Stage 25 phase B (post-protocol) swaps it to
+  read from `SidekickManager.lastReading`.
+
+Why pre-build the scaffolding now: the Settings pairing flow
+needs Bluetooth permission, which needs Info.plist usage
+description, which means a TestFlight build with the right
+entitlement. Doing this now means the protocol-day diff is
+~80 lines of GATT plumbing, not a sprint of plumbing + signing
+review.
 
 ---
 
@@ -2928,10 +3491,10 @@ visibility.)
 | 16    | done     |       | Live Activity widget. See "Stage 16 — completion notes". |
 | 17    | done     |       | Recipe URL import (JSON-LD). See "Stage 17 — completion notes". |
 | 17.5a | done     |       | Import gap-filling — static volume-to-grams table + duration parsing + egg counts + parens/"and" fixes. See "Stage 17.5a — completion notes". |
-| 17.5b | sketched |       | Import gap-filling — Foundation Models fallback. |
+| 17.5b | done     |       | Import gap-filling — Foundation Models fallback (iOS 26+, opt-in). See "Stage 17.5b — completion notes". |
 | 18    | done     |       | Share & export. See "Stage 18 — completion notes". |
 | 18.5a | done     |       | Duration ranges captured + displayed. See "Stage 18.5a — completion notes". |
-| 18.5b | sketched |       | Kitchen-learned timings from journal data. |
+| 18.5b | done     |       | Kitchen-learned timings from journal data. See "18.5b — completion notes". |
 
 ### Phase C — platform expansion (1.x → 2.0)
 
@@ -2947,9 +3510,9 @@ visibility.)
 | Stage | Status   | Owner | Notes |
 |-------|----------|-------|-------|
 | 23    | not started |    | Cloud Pro subscription tier (StoreKit 2). |
-| 24    | future   |       | On-device AI crumb diagnostic (Core ML VLM) — long-term replacement for 24a. |
+| 24    | planned  |       | On-device AI crumb diagnostic — full implementation plan written (Phases 24.0–24.5). 3–6 month ML project; long-term replacement for 24a. |
 | 24a   | done     |       | Honest crumb comparison via Apple Vision feature prints. See "Stage 24a — completion notes". |
-| 25    | not started |    | Sourdough Sidekick BLE integration (gated on partnership). |
+| 25    | partial  |       | Sourdough Sidekick BLE integration. Discovery + permission + pairing-state scaffolding done; live readings blocked on FirstBuild publishing the GATT protocol. See "Stage 25 — partial scaffolding". |
 
 ### Phase E — content & growth
 

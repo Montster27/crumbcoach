@@ -6,12 +6,15 @@ final class ConversionTests: XCTestCase {
     /// Tangzhong conversion should preserve total flour weight: anything we
     /// remove from the main dough should land in the preferment.
     func testTangzhongPreservesTotalFlour() {
-        let recipe = SampleRecipes.shokupan
-        let totalBefore = BakersMath.computePercentages(for: recipe).totalFlourGrams
-        // Shokupan already has a tangzhong; strip it for the test.
-        var stripped = recipe
+        // Shokupan already has a tangzhong; strip it first so the "before"
+        // baseline reflects the recipe the conversion will actually
+        // operate on (otherwise we'd be comparing post-conversion total
+        // against the original-recipe total that already included a
+        // tangzhong's worth of flour).
+        var stripped = SampleRecipes.shokupan
         stripped.preferments.removeAll()
         stripped.stages.removeAll { $0.kind == .cookTangzhong }
+        let totalBefore = BakersMath.computePercentages(for: stripped).totalFlourGrams
 
         let (converted, _) = Conversion.convertToTangzhong(stripped, flourPctOfTotal: 6)
         let totalAfter = BakersMath.computePercentages(for: converted).totalFlourGrams

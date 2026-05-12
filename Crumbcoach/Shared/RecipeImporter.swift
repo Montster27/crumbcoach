@@ -93,6 +93,60 @@ enum RecipeImporter {
         return mapToDraft(recipeDict: recipeDict, sourceURL: url)
     }
 
+    /// Stage 17.5b — second pass over an already-imported recipe that asks
+    /// Apple Foundation Models to fill the rows the regex + table couldn't
+    /// resolve. No-op when the device is ineligible or the user hasn't
+    /// opted in (gated at the caller via `state.aiAssistEnabled`).
+    ///
+    /// Returns a fresh `ImportedRecipe` with AI-filled rows + appended
+    /// warnings naming which rows the model touched so the user knows to
+    /// double-check.
+    static func applyAIAssist(to imported: ImportedRecipe) async -> ImportedRecipe {
+        guard AIRecipeAssist.isAvailable else { return imported }
+
+        var draft = imported.draft
+        var warnings = imported.warnings
+
+        // Ingredients with weightGrams == 0 fell through every Stage-17 /
+        // 17.5a path. Pass them to the model in original order so the
+        // returned array indexes line up with `pendingIngredientIndices`.
+        let pendingIngredientIndices = draft.ingredients.indices.filter {
+            draft.ingredients[$0].weightGrams == 0 &&
+            !draft.ingredients[$0].name.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        if !pendingIngredientIndices.isEmpty {
+            let queries = pendingIngredientIndices.map { draft.ingredients[$0].name }
+            let estimates = await AIRecipeAssist.estimateGrams(for: queries)
+            for (offset, srcIndex) in pendingIngredientIndices.enumerated() {
+                guard let grams = estimates[offset], grams > 0 else { continue }
+                draft.ingredients[srcIndex].weightGrams = grams
+                warnings.append(
+                    "Apple Intelligence estimated \(Int(grams.rounded()))g for \"\(draft.ingredients[srcIndex].name)\" — verify before baking."
+                )
+            }
+        }
+
+        // Stages with durationMin == 0 had no recognizable time anchor
+        // in the source. The model can sometimes infer one from context
+        // ("until golden brown" → typical ~25 min for a 200°C loaf).
+        let pendingStageIndices = draft.stages.indices.filter {
+            draft.stages[$0].durationMin == 0
+        }
+        if !pendingStageIndices.isEmpty {
+            let queries = pendingStageIndices.map { draft.stages[$0].note ?? "" }
+            let estimates = await AIRecipeAssist.estimateDurations(for: queries)
+            for (offset, srcIndex) in pendingStageIndices.enumerated() {
+                guard let mins = estimates[offset], mins > 0 else { continue }
+                draft.stages[srcIndex].durationMin = mins
+                warnings.append(
+                    "Apple Intelligence estimated \(mins)m for stage \(srcIndex + 1) — verify before baking."
+                )
+            }
+        }
+
+        return ImportedRecipe(draft: draft, warnings: warnings)
+    }
+
     // MARK: - JSON-LD extraction
 
     /// Find every `<script type="application/ld+json">…</script>` block and

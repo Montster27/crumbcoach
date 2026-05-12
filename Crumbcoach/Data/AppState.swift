@@ -73,6 +73,16 @@ final class AppState {
     /// owns the actual subscription / pull / push lifecycle; this field is
     /// just the persisted preference.
     var cloudSyncEnabled: Bool
+    /// Whether the importer is allowed to call into Apple Foundation
+    /// Models. Hidden in Settings when `AIRecipeAssist.isAvailable` is
+    /// false; default off so we never silently consult an on-device model.
+    var aiAssistEnabled: Bool
+    /// Stage 25 — set once the user runs the Sourdough Sidekick pairing
+    /// flow. Real BLE pairing is a future-phase add (waiting on the
+    /// FirstBuild protocol); for now this just records pairing was
+    /// attempted so Settings can show "Paired" instead of the discovery
+    /// CTA on subsequent visits.
+    var sidekickPaired: Bool
 
     // MARK: Derived
     var insights: [Insight] {
@@ -106,6 +116,8 @@ final class AppState {
             self.units              = loaded.units
             self.kitchenTempSource  = loaded.kitchenTempSource
             self.cloudSyncEnabled   = loaded.cloudSyncEnabled
+            self.aiAssistEnabled    = loaded.aiAssistEnabled
+            self.sidekickPaired     = loaded.sidekickPaired
         } else {
             // Fresh install: seed the curated recipe library + a starter so
             // the library/starter screens have something to explore, but DO
@@ -126,6 +138,8 @@ final class AppState {
             self.units              = .grams
             self.kitchenTempSource  = .manual
             self.cloudSyncEnabled   = false
+            self.aiAssistEnabled    = false
+            self.sidekickPaired     = false
             saveSoon()
         }
 
@@ -170,7 +184,9 @@ final class AppState {
                 telemetryEnabled: self.telemetryEnabled,
                 units: self.units,
                 kitchenTempSource: self.kitchenTempSource,
-                cloudSyncEnabled: self.cloudSyncEnabled
+                cloudSyncEnabled: self.cloudSyncEnabled,
+                aiAssistEnabled: self.aiAssistEnabled,
+                sidekickPaired: self.sidekickPaired
             )
             self.persistence.save(snapshot)
             // After local write, mirror to iCloud Drive when enabled. The
@@ -208,7 +224,9 @@ final class AppState {
             telemetryEnabled: telemetryEnabled,
             units: units,
             kitchenTempSource: kitchenTempSource,
-            cloudSyncEnabled: cloudSyncEnabled
+            cloudSyncEnabled: cloudSyncEnabled,
+            aiAssistEnabled: aiAssistEnabled,
+            sidekickPaired: sidekickPaired
         )
         persistence.save(snapshot)
         if cloudSyncEnabled {
@@ -431,6 +449,26 @@ final class AppState {
                 await self.syncWithCloud()
             }
         }
+    }
+
+    /// Toggle the Foundation Models import assist (Stage 17.5b). No-op
+    /// when the device or OS doesn't support it; UI hides the toggle in
+    /// that case so the user can't enable it pointlessly.
+    func setAIAssistEnabled(_ enabled: Bool) {
+        guard enabled != aiAssistEnabled else { return }
+        aiAssistEnabled = enabled
+        saveSoon()
+    }
+
+    /// Record Sourdough Sidekick pairing state (Stage 25). True after
+    /// `SidekickManager` discovered a device by name; false when the user
+    /// runs "Forget" from Settings. The actual peripheral identifier
+    /// lives on `SidekickManager`; we keep `sidekickPaired` here only so
+    /// Settings can render the right card state across launches.
+    func setSidekickPaired(_ paired: Bool) {
+        guard paired != sidekickPaired else { return }
+        sidekickPaired = paired
+        saveSoon()
     }
 
     /// Pull any newer cloud copy, then push the local file. Idempotent and
@@ -939,6 +977,18 @@ final class AppState {
             .compactMap { idx in bake.stagePhotos[idx]?.last?.assetName }
             .first
 
+        // Stage 18.5b — capture every stage's actual elapsed time so the
+        // analytics layer can later compute kitchen-learned averages.
+        // Only entries that BOTH entered and exited contribute; stages
+        // the user skipped or never reached are absent from the map.
+        var stageDurations: [Int: Int] = [:]
+        for historyEntry in bake.history {
+            guard let entered = historyEntry.enteredAt,
+                  let exited = historyEntry.exitedAt else { continue }
+            let mins = max(0, Int(exited.timeIntervalSince(entered) / 60))
+            stageDurations[historyEntry.stageIndex] = mins
+        }
+
         let entry = JournalEntry(
             id: UUID().uuidString,
             recipeId: recipe.id,
@@ -949,7 +999,8 @@ final class AppState {
             kitchenC: bake.kitchenTempC,
             note: trimmedNote,
             photoAsset: photoAsset,
-            diagnosis: "Self-rated"
+            diagnosis: "Self-rated",
+            stageDurations: stageDurations.isEmpty ? nil : stageDurations
         )
         addJournalEntry(entry)
 
