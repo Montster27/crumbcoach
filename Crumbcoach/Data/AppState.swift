@@ -433,6 +433,13 @@ final class AppState {
     /// controller, drop in-flight save tasks, and discard the
     /// non-persisted fields (notification auth, photo error, etc).
     private func reload(from loaded: PersistedState) {
+        // Capture the outgoing bake reference so we can keep the Live
+        // Activity in sync after the swap. If the pull replaces the bake
+        // (cleared, or a different bake from another device), the old
+        // activity points at stale state on the lock screen.
+        let priorBakeId = activeBake?.id
+        let newBakeId = loaded.activeBake?.id
+
         self.recipes            = loaded.recipes
         self.starters           = loaded.starters
         self.journal            = loaded.journal
@@ -448,6 +455,24 @@ final class AppState {
         self.units              = loaded.units
         self.kitchenTempSource  = loaded.kitchenTempSource
         self.cloudSyncEnabled   = loaded.cloudSyncEnabled
+
+        // Reconcile the Live Activity with the new bake state.
+        //   - bake id changed (cleared, or different bake): end the old
+        //     activity outright. If a new bake is present, start fresh.
+        //   - same id: the bake's internal state (folds, stage) may have
+        //     advanced on another device — push an update.
+        if priorBakeId != newBakeId {
+            LiveActivityManager.shared.end(immediate: true)
+            if let bake = activeBake, let recipe = recipe(bake.recipeId) {
+                LiveActivityManager.shared.start(
+                    recipeTitle: recipe.title,
+                    startedAt: bake.startedAt,
+                    state: liveActivityState(for: bake, recipe: recipe)
+                )
+            }
+        } else if activeBake != nil {
+            pushLiveActivityUpdate()
+        }
     }
 
     // MARK: Photos

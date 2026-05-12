@@ -46,6 +46,14 @@ final class CloudSyncManager: ObservableObject {
     private let log = Logger(subsystem: "com.crumbcoach.app", category: "cloudsync")
     private var enabled = false
 
+    /// In-app serialization for push and pull. Each new call chains after
+    /// the previous in-flight task so two near-simultaneous saves can't
+    /// race on the cloud file's removeItem + copyItem. `NSFileCoordinator`
+    /// (below) handles the cross-process race with the iCloud daemon; this
+    /// chain handles the in-app one.
+    private var pushTask: Task<Void, Never>?
+    private var pullTask: Task<Bool, Never>?
+
     private init() {}
 
     // MARK: Availability
@@ -90,36 +98,79 @@ final class CloudSyncManager: ObservableObject {
 
     // MARK: Push
 
-    /// Copy the local state file up to the iCloud Drive Documents container.
-    /// Off-main; no-op if disabled or unavailable.
+    /// Copy the local state file up to the iCloud Drive Documents
+    /// container. Off-main; no-op if disabled or unavailable.
+    ///
+    /// Two safety layers stack here:
+    ///   1. **In-app chain** via `pushTask`: each new push awaits the
+    ///      prior in-flight one before running, so two saves spawned 0.5s
+    ///      apart can't race their own `removeItem` + `copyItem` against
+    ///      each other.
+    ///   2. **`NSFileCoordinator`** wrapping the actual file work: Apple
+    ///      requires coordinated access to ubiquity URLs so the iCloud
+    ///      daemon doesn't return stale bytes mid-sync, and so simultaneous
+    ///      writes from other processes serialize cleanly.
     func push(localStateURL: URL) async {
         guard enabled, isAvailable, let cloudDir = ubiquityDocumentsDirectory() else {
             return
         }
         status = .syncing
         let cloudURL = cloudDir.appendingPathComponent(localStateURL.lastPathComponent)
+        let prior = pushTask
+        let next = Task { [weak self] in
+            // Wait for the predecessor so pushes serialize in arrival order.
+            // Cancellation propagates harmlessly — `value` returns the
+            // cancelled task's Void regardless.
+            await prior?.value
+            guard let self else { return }
+            let result = await Self.performPush(
+                localStateURL: localStateURL,
+                cloudURL: cloudURL,
+                log: self.log
+            )
+            await MainActor.run { self.status = result }
+        }
+        pushTask = next
+        await next.value
+    }
 
-        let result = await Task.detached(priority: .utility) { [log] () -> SyncStatus in
-            do {
-                if FileManager.default.fileExists(atPath: cloudURL.path) {
-                    try FileManager.default.removeItem(at: cloudURL)
+    private static func performPush(localStateURL: URL,
+                                     cloudURL: URL,
+                                     log: Logger) async -> SyncStatus {
+        await Task.detached(priority: .utility) { () -> SyncStatus in
+            let coordinator = NSFileCoordinator(filePresenter: nil)
+            var coordinationError: NSError?
+            var outcome: SyncStatus = .failed("coordination did not run")
+            coordinator.coordinate(writingItemAt: cloudURL,
+                                    options: .forReplacing,
+                                    error: &coordinationError) { writeURL in
+                do {
+                    let fm = FileManager.default
+                    if fm.fileExists(atPath: writeURL.path) {
+                        try fm.removeItem(at: writeURL)
+                    }
+                    try fm.copyItem(at: localStateURL, to: writeURL)
+                    log.info("CloudSync push ok")
+                    outcome = .syncedAt(Date())
+                } catch {
+                    log.error("CloudSync push failed: \(error.localizedDescription, privacy: .public)")
+                    outcome = .failed(error.localizedDescription)
                 }
-                try FileManager.default.copyItem(at: localStateURL, to: cloudURL)
-                log.info("CloudSync push ok")
-                return .syncedAt(Date())
-            } catch {
-                log.error("CloudSync push failed: \(error.localizedDescription, privacy: .public)")
-                return .failed(error.localizedDescription)
             }
+            if let coordinationError {
+                log.error("CloudSync push coordination failed: \(coordinationError.localizedDescription, privacy: .public)")
+                return .failed(coordinationError.localizedDescription)
+            }
+            return outcome
         }.value
-
-        status = result
     }
 
     // MARK: Pull
 
     /// Return value: `true` if a newer cloud copy was pulled and replaced
-    /// the local file (caller should reload from disk).
+    /// the local file (caller should reload from disk). Like push, this is
+    /// chained against any in-flight pull and wrapped in `NSFileCoordinator`
+    /// for cross-process safety.
     @discardableResult
     func pullIfNewer(into localStateURL: URL) async -> Bool {
         guard enabled, isAvailable, let cloudDir = ubiquityDocumentsDirectory() else {
@@ -128,28 +179,57 @@ final class CloudSyncManager: ObservableObject {
         let cloudURL = cloudDir.appendingPathComponent(localStateURL.lastPathComponent)
         guard FileManager.default.fileExists(atPath: cloudURL.path) else { return false }
 
-        let didPull = await Task.detached(priority: .utility) { () -> Bool in
-            let fm = FileManager.default
-            let cloudDate = (try? cloudURL.resourceValues(forKeys: [.contentModificationDateKey])
-                .contentModificationDate) ?? .distantPast
-            let localDate = (try? localStateURL.resourceValues(forKeys: [.contentModificationDateKey])
-                .contentModificationDate) ?? .distantPast
-            guard cloudDate > localDate.addingTimeInterval(0.5) else { return false }
-            // Coordinated swap: remove local then copy cloud → local.
-            do {
-                if fm.fileExists(atPath: localStateURL.path) {
-                    try fm.removeItem(at: localStateURL)
-                }
-                try fm.copyItem(at: cloudURL, to: localStateURL)
-                return true
-            } catch {
-                return false
+        let prior = pullTask
+        let next = Task { [weak self] in
+            _ = await prior?.value
+            guard let self else { return false }
+            let didPull = await Self.performPull(
+                localStateURL: localStateURL,
+                cloudURL: cloudURL,
+                log: self.log
+            )
+            if didPull {
+                await MainActor.run { self.status = .syncedAt(Date()) }
             }
-        }.value
-
-        if didPull {
-            status = .syncedAt(Date())
+            return didPull
         }
-        return didPull
+        pullTask = next
+        return await next.value
+    }
+
+    private static func performPull(localStateURL: URL,
+                                     cloudURL: URL,
+                                     log: Logger) async -> Bool {
+        await Task.detached(priority: .utility) { () -> Bool in
+            let coordinator = NSFileCoordinator(filePresenter: nil)
+            var coordinationError: NSError?
+            var didCopy = false
+            coordinator.coordinate(readingItemAt: cloudURL,
+                                    options: [],
+                                    error: &coordinationError) { readURL in
+                let fm = FileManager.default
+                let cloudDate = (try? readURL.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+                let localDate = (try? localStateURL.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+                // 0.5s slop because mtimes round-trip through the file
+                // system with sub-second precision; we don't want clock
+                // jitter to falsely flag the cloud as newer.
+                guard cloudDate > localDate.addingTimeInterval(0.5) else { return }
+                do {
+                    if fm.fileExists(atPath: localStateURL.path) {
+                        try fm.removeItem(at: localStateURL)
+                    }
+                    try fm.copyItem(at: readURL, to: localStateURL)
+                    didCopy = true
+                } catch {
+                    log.error("CloudSync pull failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            if let coordinationError {
+                log.error("CloudSync pull coordination failed: \(coordinationError.localizedDescription, privacy: .public)")
+            }
+            return didCopy
+        }.value
     }
 }
