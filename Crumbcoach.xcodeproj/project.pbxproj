@@ -486,19 +486,19 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					3B5B1D2FACB9DB8529C951A5 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = 9C4LVC9DR6;
 						ProvisioningStyle = Automatic;
 					};
 					3CE4741F67F737757D27962F = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = 9C4LVC9DR6;
 						ProvisioningStyle = Automatic;
 					};
 					CCA339B365BAFA56DB196154 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = 9C4LVC9DR6;
 						ProvisioningStyle = Automatic;
 					};
 					D5A913D30A42215AEDFABC60 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = 9C4LVC9DR6;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -645,7 +645,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 2;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Crumbcoach.app/Crumbcoach";
@@ -689,7 +689,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 9C4LVC9DR6;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -760,7 +760,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 9C4LVC9DR6;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -798,7 +798,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app.share;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -816,7 +816,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.share;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app.share;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -836,7 +836,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 2;
 			};
@@ -853,7 +853,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -870,7 +870,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 2;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Crumbcoach.app/Crumbcoach";
@@ -890,7 +890,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 2;
 			};
@@ -907,7 +907,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = com.monty.crumbcoach.app.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = 2;

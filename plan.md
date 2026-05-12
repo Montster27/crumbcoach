@@ -17,7 +17,10 @@ needing context from the previous stages (beyond reading this preamble).
   ```bash
   xcodegen generate
   ```
-- Bundle id: `com.crumbcoach.app` (this repo) / users override in their fork.
+- Bundle id: `com.monty.crumbcoach.app` (this repo, signed under Monty's
+  personal team `9C4LVC9DR6`). Forks change `DEVELOPMENT_TEAM` + every
+  `com.monty.crumbcoach.app*` reference in `project.yml` (main + widget
+  + share + tests targets, plus the iCloud container in `entitlements`).
 - Repo: <https://github.com/Montster27/crumbcoach>.
 - Currently in TestFlight as `GeekBread` 0.1.0.
 
