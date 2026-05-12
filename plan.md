@@ -1756,6 +1756,189 @@ Post-Stage 17 follow-ups landed (post King-Arthur-import test):
   explicit Import tap so the user can't silently overwrite their
   data.
 
+### Stage 17.5 — Import gap-filling (lookup table + Foundation Models)
+
+**Sketch — not started.** Slots between Stage 17 (regex JSON-LD)
+and Stage 18 (share/export) as the second-pass import quality lift.
+The regex import handles "ingredient has grams in the source"; this
+stage handles "ingredient has no grams in the source" + "stage has
+no duration in the source" — the two warning categories left over
+after the post-King-Arthur fixes.
+
+**Two-layer approach:**
+
+#### 17.5a — Static volume-to-grams lookup
+
+A small constant table for the ~30 most common bread ingredients,
+mapping `(name keyword, US volume unit) → grams`. Deterministic, no
+device-version gate, no inference cost. Handles the long tail of
+"2 1/4 teaspoons instant yeast" style rows that fall through Stage
+17's parser today.
+
+Sketch:
+
+```swift
+// Crumbcoach/Shared/IngredientWeightTable.swift
+enum IngredientWeightTable {
+    /// (lowercased keyword, unit) → grams per unit.
+    /// Source: King Arthur ingredient weights chart + standard
+    /// baker references; comment each entry with provenance.
+    private static let table: [(String, Unit, Double)] = [
+        ("instant yeast",       .teaspoon,   3.1),
+        ("active dry yeast",    .teaspoon,   3.1),
+        ("table salt",          .teaspoon,   6.0),
+        ("kosher salt",         .teaspoon,   4.8),  // Diamond
+        ("bread flour",         .cup,      120.0),
+        ("all-purpose flour",   .cup,      120.0),
+        ("water",               .cup,      237.0),
+        ("milk",                .cup,      227.0),
+        ("granulated sugar",    .cup,      198.0),
+        ("brown sugar",         .cup,      213.0),
+        ("honey",               .tablespoon, 21.0),
+        ("butter",              .tablespoon, 14.2),
+        // … ~30 rows total covering top-of-pareto
+    ]
+
+    enum Unit { case teaspoon, tablespoon, cup }
+
+    /// Returns nil when the (name keyword × unit) pair isn't in the
+    /// table. Callers fall back to LLM (17.5b) or leave the row at
+    /// 0g with a warning.
+    static func estimate(name: String, quantity: Double, unit: Unit) -> Double?
+}
+```
+
+`RecipeImporter.parseIngredients` calls this after both regex
+attempts fail; on a hit, the row gets `weightGrams` populated +
+warnings note "estimated from table" so the user knows to verify.
+
+#### 17.5b — Foundation Models fallback
+
+For rows the table misses, use Apple's on-device LLM via the
+`FoundationModels` framework (iOS 18.1+, Apple Intelligence-eligible
+devices: iPhone 15 Pro+, M1+ iPad). Same for stage duration
+estimates pulled from instruction text.
+
+Sketch:
+
+```swift
+import FoundationModels   // iOS 18.1+ only
+
+@available(iOS 18.1, *)
+enum AIRecipeAssist {
+    @Generable
+    struct IngredientEstimate {
+        @Guide(description: "Weight in grams. 0 if unsure.")
+        let grams: Double
+        @Guide(description: "Confidence 0..1.")
+        let confidence: Double
+    }
+
+    @Generable
+    struct StageEstimate {
+        @Guide(description: "Duration in minutes. 0 if unsure.")
+        let minutes: Int
+        @Guide(description: "Confidence 0..1.")
+        let confidence: Double
+    }
+
+    static var isAvailable: Bool {
+        if #available(iOS 18.1, *) {
+            return SystemLanguageModel.default.availability == .available
+        }
+        return false
+    }
+
+    @available(iOS 18.1, *)
+    static func estimateGrams(for ingredients: [String]) async throws -> [Double?] {
+        let session = LanguageModelSession(instructions: """
+        You estimate ingredient weights for bread recipes. The user
+        sends one ingredient string at a time. Return grams + a
+        confidence. If you cannot estimate confidently from standard
+        US recipe conventions, return grams = 0 and confidence < 0.5.
+        Never guess wildly — bakers will weigh by the number you
+        return.
+        """)
+        return try await withThrowingTaskGroup(of: (Int, Double?).self) { group in
+            for (i, line) in ingredients.enumerated() {
+                group.addTask {
+                    let r = try await session.respond(
+                        to: line,
+                        generating: IngredientEstimate.self
+                    )
+                    // Reject low-confidence + sanity-check against
+                    // the lookup table when possible.
+                    return (i, r.content.confidence >= 0.6 ? r.content.grams : nil)
+                }
+            }
+            var out = Array<Double?>(repeating: nil, count: ingredients.count)
+            for try await (i, g) in group { out[i] = g }
+            return out
+        }
+    }
+
+    @available(iOS 18.1, *)
+    static func estimateDurations(for instructions: [String]) async throws -> [Int?] {
+        // Symmetric to estimateGrams: prompts the model with a
+        // single stage instruction, returns minutes when confident.
+        // Captures "Let rest 4 hours" → 240, "Bake until golden
+        // brown" → ~30 (a default), "Overnight" → 720.
+    }
+}
+```
+
+#### Integration points
+
+- `RecipeImporter.import(from:)` becomes async-capable (already is)
+  and grows an optional post-processing pass:
+  1. Regex extraction (today's Stage 17 path) — wins for most rows.
+  2. Table lookup for unparsed rows (17.5a).
+  3. Foundation Models for everything still at 0g/0min when
+     `AIRecipeAssist.isAvailable && state.aiAssistEnabled`.
+- Warnings shape: each row gets a source tag — `.parsed`, `.table`,
+  `.aiAssisted`, or `.unfilled` — and the editor's import-notes
+  block surfaces "AI-assisted N rows, please verify" so the user
+  treats those rows with extra scrutiny.
+- Settings adds a "Use Apple Intelligence to fill recipe gaps"
+  toggle. Default ON when available (matches the opt-out posture
+  of Stage 9 telemetry), with copy explaining "Runs on this iPad
+  only — no upload."
+
+#### Risks + guard rails
+
+- **Hallucinated weights.** Mitigation: sanity-check LLM output
+  against the lookup table when there's any keyword overlap; reject
+  estimates outside ±50% of the table value.
+- **Latency.** ~1–2s per inference on M1; batched task group
+  brings a 7-ingredient recipe down to ~3s overall. Acceptable for
+  a one-shot import; not on the hot path.
+- **Device gating.** iOS 17.0 deployment target stays — runtime
+  `#available(iOS 18.1, *)` checks hide the LLM path on older
+  devices and iPads without Apple Intelligence. Table layer (17.5a)
+  works everywhere.
+- **API drift.** `FoundationModels` is iOS 26+ public API; surface
+  area may evolve. Worth shipping behind a feature flag and
+  isolating in `AIRecipeAssist.swift` so a future API change is one
+  file to refactor.
+- **Privacy posture preserved.** Both layers stay on-device — no
+  upload, no cloud round-trip. Same story as Stage 9 telemetry.
+
+#### Effort estimate
+
+- 17.5a (lookup table): ~2 hours including data entry, integration,
+  and a couple of unit tests.
+- 17.5b (Foundation Models): ~4–6 hours including the assist
+  module, Settings toggle, and editor warning-tag surface.
+- Total: under a day of focused work.
+
+#### When to do it
+
+- If 17.5a alone closes most "couldn't parse" warnings on real
+  recipes the user actually imports, 17.5b may not be worth the
+  iOS 18.1+ availability gate + the hallucination risk.
+- Sequence: ship 17.5a first; watch the warnings rate; pull
+  17.5b in only if 17.5a leaves real gaps.
+
 ### Stage 18 — Share & export
 
 - Share a recipe via deep link (`crumbcoach://recipe/<id>`) and
@@ -2154,6 +2337,7 @@ visibility.)
 | 15    | done     |       | iCloud Drive sync (ubiquity Documents). See "Stage 15 — completion notes". |
 | 16    | done     |       | Live Activity widget. See "Stage 16 — completion notes". |
 | 17    | done     |       | Recipe URL import (JSON-LD). See "Stage 17 — completion notes". |
+| 17.5  | sketched |       | Import gap-filling (lookup table + Foundation Models). |
 | 18    | done     |       | Share & export. See "Stage 18 — completion notes". |
 
 ### Phase C — platform expansion (1.x → 2.0)
