@@ -217,22 +217,23 @@ enum RecipeImporter {
 
     // MARK: - Ingredient parsing
 
-    /// Try to pull a gram weight + name out of an ingredient string. Two
+    /// Try to pull a gram weight + name out of an ingredient string. Three
     /// patterns we handle, in order:
     ///
-    /// 1. Leading-unit: `"500 g bread flour"`, `"0.5 kg bread flour"`,
-    ///    `"17.6 oz bread flour"` — the string starts with the weight.
-    /// 2. Parenthesized: `"1 1/4 cups (284g) lukewarm water"`,
-    ///    `"4 cups (480g) King Arthur Flour"` — common on King Arthur,
-    ///    Foodgeek, etc., where the volume measurement is primary and the
-    ///    gram value is the metric annotation.
+    /// 1. **Leading-unit** (Stage 17): `"500 g bread flour"`, `"0.5 kg
+    ///    bread flour"`, `"17.6 oz bread flour"` — string starts with the
+    ///    weight.
+    /// 2. **Parenthesized** (Stage 17): `"1 1/4 cups (284g) lukewarm
+    ///    water"` — common on King Arthur, Foodgeek, etc., where the
+    ///    volume measurement is primary and grams is the metric annotation.
+    /// 3. **Table lookup** (Stage 17.5a): `"2 1/4 teaspoons instant
+    ///    yeast"` — no gram value in the source at all. The
+    ///    `IngredientWeightTable` matches keyword + volume unit and
+    ///    multiplies through. Tagged in warnings as "estimated from table
+    ///    — verify" so the user knows to double-check.
     ///
-    /// For the parenthesized path we also strip the leading volume quantity
-    /// (`1 1/4 cups (284g) to 1 1/2 cups`) and any trailing junk so the
-    /// name lands as a clean noun phrase.
-    ///
-    /// Anything else gets the raw string as the name and grams = 0, plus a
-    /// warning so the user knows which rows need touch-up.
+    /// Anything that still falls through gets the raw string as the name
+    /// and grams = 0, with a "couldn't parse" warning.
     static func parseIngredients(_ raw: [String]) -> ([Ingredient], [String]) {
         var out: [Ingredient] = []
         var warnings: [String] = []
@@ -247,6 +248,17 @@ enum RecipeImporter {
                     bakersPct: 0,
                     section: "main"
                 ))
+            } else if let (grams, name, keyword) = parseFromTable(trimmed) {
+                out.append(Ingredient(
+                    name: name,
+                    category: categoryGuess(for: name),
+                    weightGrams: grams,
+                    bakersPct: 0,
+                    section: "main"
+                ))
+                warnings.append(
+                    "Estimated \(Int(grams.rounded()))g for \"\(trimmed)\" using the standard weight for \(keyword) — verify before baking."
+                )
             } else {
                 out.append(Ingredient(
                     name: trimmed,
@@ -259,6 +271,80 @@ enum RecipeImporter {
             }
         }
         return (out, warnings)
+    }
+
+    // MARK: - Table-based parser (Stage 17.5a)
+
+    private static let leadingQuantityUnitRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"^\s*(\d+(?:\s+\d+/\d+)?(?:[.,]\d+)?|\d+/\d+)\s*(cups?|tablespoons?|tbsp\.?|tbs\.?|teaspoons?|tsp\.?)\b\s*(.*)$"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Pattern 3: extract quantity + volume unit + name, then look up grams
+    /// via the static `IngredientWeightTable`. Returns the matched keyword
+    /// alongside grams + name so the caller can attribute the estimate in
+    /// the warnings list.
+    private static func parseFromTable(_ input: String) -> (Double, String, String)? {
+        guard let regex = leadingQuantityUnitRegex else { return nil }
+        let ns = input as NSString
+        guard let match = regex.firstMatch(in: input,
+                                            range: NSRange(location: 0, length: ns.length)),
+              match.numberOfRanges == 4 else { return nil }
+        let quantityStr = ns.substring(with: match.range(at: 1))
+        let unitStr = ns.substring(with: match.range(at: 2)).lowercased()
+        let rest = ns.substring(with: match.range(at: 3))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let quantity = parseQuantity(quantityStr),
+              let unit = mapVolumeUnit(unitStr),
+              !rest.isEmpty,
+              let estimate = IngredientWeightTable.estimate(
+                    name: rest,
+                    quantity: quantity,
+                    unit: unit
+              ) else {
+            return nil
+        }
+        // Clean the name the same way the parenthesized path does so
+        // table-sourced rows look the same in the editor.
+        let name = cleanIngredientName(rest)
+        return (estimate.grams, name.isEmpty ? rest : name, estimate.matchedKeyword)
+    }
+
+    /// Parse "2", "1.5", "1/2", "2 1/4" — the four numeric forms recipes
+    /// actually use. Decimal comma normalized to a period.
+    private static func parseQuantity(_ raw: String) -> Double? {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        // Mixed number "2 1/4"
+        if let spaceIdx = trimmed.firstIndex(of: " ") {
+            let whole = String(trimmed[..<spaceIdx])
+            let frac = String(trimmed[trimmed.index(after: spaceIdx)...])
+                .trimmingCharacters(in: .whitespaces)
+            if let w = Double(whole), let f = parseFraction(frac) {
+                return w + f
+            }
+        }
+        if let f = parseFraction(trimmed) { return f }
+        return Double(trimmed)
+    }
+
+    private static func parseFraction(_ s: String) -> Double? {
+        let parts = s.split(separator: "/")
+        guard parts.count == 2,
+              let num = Double(parts[0]),
+              let den = Double(parts[1]),
+              den != 0 else { return nil }
+        return num / den
+    }
+
+    private static func mapVolumeUnit(_ raw: String) -> IngredientWeightTable.Unit? {
+        let lower = raw.lowercased().replacingOccurrences(of: ".", with: "")
+        switch lower {
+        case "cup", "cups":                            return .cup
+        case "tbsp", "tbs", "tablespoon", "tablespoons": return .tablespoon
+        case "tsp", "teaspoon", "teaspoons":           return .teaspoon
+        default:                                       return nil
+        }
     }
 
     private static let leadingWeightRegex: NSRegularExpression? = try? NSRegularExpression(

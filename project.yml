@@ -19,7 +19,7 @@ settings:
     # below + the `iCloud.com.monty.crumbcoach.app` container references.
     DEVELOPMENT_TEAM: 9C4LVC9DR6
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.1.1"
     CURRENT_PROJECT_VERSION: "1"
 targets:
   Crumbcoach:

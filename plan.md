@@ -1939,6 +1939,60 @@ enum AIRecipeAssist {
 - Sequence: ship 17.5a first; watch the warnings rate; pull
   17.5b in only if 17.5a leaves real gaps.
 
+### Stage 17.5a — completion notes
+
+Lookup-table layer landed. `Crumbcoach/Shared/IngredientWeightTable.swift`
+ships ~35 entries covering flours, liquids, salts, leavens,
+sweeteners, fats, and a few common misc rows (cocoa powder, dry
+milk). Each entry maps `(keyword, unit) → grams per unit`. Numbers
+sourced from King Arthur's published ingredient-weight chart with
+brand-specific notes where they diverge (kosher salt: Diamond
+Crystal 4.8g/tsp vs Morton 6.0g/tsp — table ships Diamond as the
+US default, comment captures the divergence).
+
+Wired into `RecipeImporter.parseIngredients` as the third pattern
+after the Stage 17 regex paths:
+
+1. `parseLeadingWeight` — "500 g flour" (Stage 17)
+2. `parseParenthesizedWeight` — "1 1/4 cups (284g) water" (Stage 17)
+3. `parseFromTable` — "2 1/4 teaspoons instant yeast" → 7g (Stage 17.5a, NEW)
+
+`parseFromTable` matches a leading `(quantity)(unit)` group via
+regex, then converts:
+
+- Quantity parser handles whole numbers, decimals, simple fractions
+  (`1/2`), and mixed numbers (`2 1/4`) — the four numeric forms
+  recipes actually publish.
+- Volume-unit mapper folds `cup / cups / tablespoon / tbsp / tbs /
+  teaspoon / tsp` (with optional trailing period) into the table's
+  three-case `Unit` enum.
+- Keyword match is longest-first so `"all-purpose flour"` wins
+  over plain `"flour"`. A catch-all `"flour"` row at 120g/cup
+  handles unrecognized varietals so the row still gets a weight.
+
+Warnings shape changed: table-sourced rows surface as
+`"Estimated Xg for "2 1/4 teaspoons instant yeast" using the
+standard weight for instant yeast — verify before baking."` so
+the user sees exactly which rows are estimates and what the table
+matched against.
+
+Known gaps deliberately left for later:
+
+- Long-tail ingredients (almond meal, einkorn, malt syrup, kefir,
+  etc.) aren't in the table. They fall through to the
+  "couldn't parse" warning today. Adding rows is mechanical when
+  the user surfaces a specific case.
+- Eggs counted as "1 large egg" / "2 eggs" aren't handled — those
+  use a count-based pattern (no volume unit). Worth a separate
+  `parseEggCount` path if Foodgeek-style enriched recipes show up
+  often.
+- The table assumes US-customary volume conventions (a US cup =
+  237 ml). Recipes from UK / AU sites with imperial cups (284 ml)
+  would skew low. Worth a `Locale`-based switch if European
+  imports become common.
+- No oz / lb mass parsing — Stage 17's regex already handles those
+  cases.
+
 ### Stage 18 — Share & export
 
 - Share a recipe via deep link (`crumbcoach://recipe/<id>`) and
@@ -2337,7 +2391,8 @@ visibility.)
 | 15    | done     |       | iCloud Drive sync (ubiquity Documents). See "Stage 15 — completion notes". |
 | 16    | done     |       | Live Activity widget. See "Stage 16 — completion notes". |
 | 17    | done     |       | Recipe URL import (JSON-LD). See "Stage 17 — completion notes". |
-| 17.5  | sketched |       | Import gap-filling (lookup table + Foundation Models). |
+| 17.5a | done     |       | Import gap-filling — static volume-to-grams table. See "Stage 17.5a — completion notes". |
+| 17.5b | sketched |       | Import gap-filling — Foundation Models fallback. |
 | 18    | done     |       | Share & export. See "Stage 18 — completion notes". |
 
 ### Phase C — platform expansion (1.x → 2.0)
