@@ -1718,6 +1718,44 @@ editor's URL row. Network round-trip stays in-app; no backend.
   more sophisticated bot detection (rare for recipe blogs) may
   still 403; the user sees the `.fetchFailed(HTTP 403)` message.
 
+Post-Stage 17 follow-ups landed (post King-Arthur-import test):
+
+- Parenthesized-weight parsing. King Arthur, Foodgeek, Maurizio Leo,
+  and most US bread blogs format ingredients as
+  `"1 1/4 cups (284g) lukewarm water"` — volume primary, grams as
+  the metric annotation. The original parser required the string to
+  *start* with a number+unit, so all seven ingredients on a typical
+  KA recipe import landed with `weightGrams = 0` and a "couldn't
+  parse" warning. New layered parser:
+  1. **`parseLeadingWeight`** — the existing "500 g flour" path
+     (handles plain metric recipes).
+  2. **`parseParenthesizedWeight`** — finds the first `(284g)` /
+     `(0.5 kg)` / `(17.6 oz)` group anywhere in the string.
+  3. Falls through with a warning if neither matches (recipes that
+     publish only US-customary units).
+- Ingredient name cleanup (`cleanIngredientName`). After
+  parenthesized extraction, strips all `(…)` blocks, the leading
+  volume quantity (`"1 1/4 cups"`, `"2 tablespoons"`), and an
+  optional `"to N units"` range tail (`"to 1 1/2 cups"`). Trims
+  footnote markers, doubled spaces, and trailing punctuation. So
+  `"1 1/4 cups (284g)  to 1 1/2 cups (340g) lukewarm water*"` lands
+  as `"lukewarm water"` rather than the full source string.
+- `parseIngredients` now produces a `weightGrams > 0` row for every
+  ingredient that has gram annotations in parens — six of seven
+  rows on the King Arthur Classic Sourdough recipe parse cleanly
+  on import (only `"2 1/4 teaspoons instant yeast"` falls through,
+  since it carries no gram value at all).
+- Editor auto-import on first appear (`.task`). The share-extension
+  and Library "Paste URL" entry points seed the editor's URL field
+  but the user previously had to tap "Import recipe" manually.
+  Saving without the explicit tap persisted the `blank()` sourdough
+  skeleton with just the URL attached — the "URL right but
+  everything else wrong" trap. Now `runImport()` fires once on
+  appear when `editingRecipeId == nil` and the URL field is
+  pre-seeded; editing an existing linked recipe still requires an
+  explicit Import tap so the user can't silently overwrite their
+  data.
+
 ### Stage 18 — Share & export
 
 - Share a recipe via deep link (`crumbcoach://recipe/<id>`) and
@@ -2041,10 +2079,12 @@ narrative theater.
 closed by `1c0a4d8`. Surviving worth-addressing items kept here for
 visibility.)
 
-- [ ] `RecipeImporter.categoryGuess` operator-precedence bug —
+- [x] ~~`RecipeImporter.categoryGuess` operator-precedence bug —
   "vegetable oil" / "canola oil" tag as `.liquid` instead of
-  `.fat`. Parenthesize the liquid chain.
-  ([RecipeImporter.swift:297](Crumbcoach/Shared/RecipeImporter.swift:297))
+  `.fat`.~~ Closed: parenthesized the melted-butter clause and
+  pulled `oil` out of the liquid chain entirely; oil is always a
+  fat in bread math.
+  ([RecipeImporter.swift](Crumbcoach/Shared/RecipeImporter.swift))
 - [ ] `cloudSyncEnabled` round-trips through the cloud JSON, so
   opt-out on one device gets silently re-enabled by a pull from a
   still-enabled device.

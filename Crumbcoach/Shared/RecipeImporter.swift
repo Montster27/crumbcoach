@@ -217,12 +217,20 @@ enum RecipeImporter {
 
     // MARK: - Ingredient parsing
 
-    /// Try to pull a gram weight + name out of an ingredient string. Common
-    /// patterns we handle:
-    ///   - "500 g bread flour"
-    ///   - "500g bread flour"
-    ///   - "0.5 kg bread flour"
-    ///   - "17.6 oz bread flour"
+    /// Try to pull a gram weight + name out of an ingredient string. Two
+    /// patterns we handle, in order:
+    ///
+    /// 1. Leading-unit: `"500 g bread flour"`, `"0.5 kg bread flour"`,
+    ///    `"17.6 oz bread flour"` — the string starts with the weight.
+    /// 2. Parenthesized: `"1 1/4 cups (284g) lukewarm water"`,
+    ///    `"4 cups (480g) King Arthur Flour"` — common on King Arthur,
+    ///    Foodgeek, etc., where the volume measurement is primary and the
+    ///    gram value is the metric annotation.
+    ///
+    /// For the parenthesized path we also strip the leading volume quantity
+    /// (`1 1/4 cups (284g) to 1 1/2 cups`) and any trailing junk so the
+    /// name lands as a clean noun phrase.
+    ///
     /// Anything else gets the raw string as the name and grams = 0, plus a
     /// warning so the user knows which rows need touch-up.
     static func parseIngredients(_ raw: [String]) -> ([Ingredient], [String]) {
@@ -253,13 +261,25 @@ enum RecipeImporter {
         return (out, warnings)
     }
 
-    private static let weightRegex: NSRegularExpression? = try? NSRegularExpression(
+    private static let leadingWeightRegex: NSRegularExpression? = try? NSRegularExpression(
         pattern: #"^\s*([0-9]+(?:[.,][0-9]+)?)\s*(kg|kilograms?|g|grams?|oz|ounces?)\b\s*(.*)$"#,
         options: [.caseInsensitive]
     )
 
+    private static let parenthesizedWeightRegex: NSRegularExpression? = try? NSRegularExpression(
+        pattern: #"\(\s*([0-9]+(?:[.,][0-9]+)?)\s*(kg|kilograms?|g|grams?|oz|ounces?)\s*\)"#,
+        options: [.caseInsensitive]
+    )
+
     private static func parseGramsAndName(from input: String) -> (Double, String)? {
-        guard let regex = weightRegex else { return nil }
+        if let result = parseLeadingWeight(input) { return result }
+        if let result = parseParenthesizedWeight(input) { return result }
+        return nil
+    }
+
+    /// Pattern 1: "500 g flour".
+    private static func parseLeadingWeight(_ input: String) -> (Double, String)? {
+        guard let regex = leadingWeightRegex else { return nil }
         let ns = input as NSString
         guard let match = regex.firstMatch(in: input,
                                             range: NSRange(location: 0, length: ns.length)),
@@ -269,35 +289,106 @@ enum RecipeImporter {
         let unitStr = ns.substring(with: match.range(at: 2)).lowercased()
         let nameStr = ns.substring(with: match.range(at: 3))
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let value = Double(valueStr) else { return nil }
-        let grams: Double
-        switch unitStr {
-        case "kg", "kilogram", "kilograms":
-            grams = value * 1000
-        case "g", "gram", "grams":
-            grams = value
-        case "oz", "ounce", "ounces":
-            grams = value * Units.gramsPerOunce
-        default:
-            return nil
-        }
+        guard let value = Double(valueStr),
+              let grams = convertToGrams(value: value, unit: unitStr) else { return nil }
         return (grams, nameStr.isEmpty ? input : nameStr)
+    }
+
+    /// Pattern 2: "1 1/4 cups (284g) lukewarm water".
+    private static func parseParenthesizedWeight(_ input: String) -> (Double, String)? {
+        guard let regex = parenthesizedWeightRegex else { return nil }
+        let ns = input as NSString
+        guard let match = regex.firstMatch(in: input,
+                                            range: NSRange(location: 0, length: ns.length)),
+              match.numberOfRanges == 3 else { return nil }
+        let valueStr = ns.substring(with: match.range(at: 1))
+            .replacingOccurrences(of: ",", with: ".")
+        let unitStr = ns.substring(with: match.range(at: 2)).lowercased()
+        guard let value = Double(valueStr),
+              let grams = convertToGrams(value: value, unit: unitStr) else { return nil }
+        let name = cleanIngredientName(input)
+        return (grams, name.isEmpty ? input : name)
+    }
+
+    private static func convertToGrams(value: Double, unit: String) -> Double? {
+        switch unit {
+        case "g", "gram", "grams":      return value
+        case "kg", "kilogram", "kilograms": return value * 1000
+        case "oz", "ounce", "ounces":   return value * Units.gramsPerOunce
+        default: return nil
+        }
+    }
+
+    /// Best-effort cleanup of an ingredient string into a noun phrase, used
+    /// after pattern-2 weight extraction. Strips:
+    ///   - all parenthesized blocks ("(284g)", "(2 cups), divided")
+    ///   - the leading volume quantity ("1 1/4 cups", "2 tablespoons")
+    ///   - an optional "to N units" range continuation
+    ///     ("to 1 1/2 cups")
+    ///   - trailing footnote markers and stray punctuation
+    static func cleanIngredientName(_ input: String) -> String {
+        var name = stripAllParenBlocks(from: input)
+        name = stripLeadingVolume(from: name)
+        // "1 1/4 cups (284g) to 1 1/2 cups (340g) lukewarm water" — after
+        // the first volume strip we're left with "to 1 1/2 cups …". Drop
+        // the "to" + a second volume.
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        if trimmed.lowercased().hasPrefix("to ") {
+            name = stripLeadingVolume(from: String(trimmed.dropFirst(3)))
+        }
+        return name
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.*"))
+            .replacingOccurrences(of: "  ", with: " ")
+    }
+
+    private static let parenBlockRegex: NSRegularExpression? =
+        try? NSRegularExpression(pattern: #"\([^)]*\)"#)
+    private static let leadingVolumeRegex: NSRegularExpression? =
+        try? NSRegularExpression(
+            pattern: #"^\s*(?:\d+(?:\s+\d+/\d+)?(?:[.,]\d+)?|\d+/\d+)\s*(?:cups?|teaspoons?|tablespoons?|tsp\.?|tbsp\.?|pints?|quarts?|pounds?|lbs?\.?|sticks?|ounces?|oz\.?)\.?"#,
+            options: [.caseInsensitive]
+        )
+
+    private static func stripAllParenBlocks(from input: String) -> String {
+        guard let regex = parenBlockRegex else { return input }
+        let ns = input as NSString
+        return regex.stringByReplacingMatches(
+            in: input,
+            range: NSRange(location: 0, length: ns.length),
+            withTemplate: " "
+        )
+    }
+
+    private static func stripLeadingVolume(from input: String) -> String {
+        guard let regex = leadingVolumeRegex else { return input }
+        let ns = input as NSString
+        return regex.stringByReplacingMatches(
+            in: input,
+            range: NSRange(location: 0, length: ns.length),
+            withTemplate: ""
+        )
     }
 
     /// Best-effort category guess from the ingredient name. Wrong guesses
     /// are cheap — the user picks the right category in the editor row's
     /// menu. We err on the side of `.flour` for unknowns because the
     /// "needs at least one flour" validator is the only one that uses it.
+    ///
+    /// Note on "dry milk": the keyword "milk" triggers `.liquid`, which is
+    /// wrong for nonfat dry milk solids. Acceptable trade-off — full-fat
+    /// liquid milk is the far more common ingredient.
     static func categoryGuess(for name: String) -> IngredientCategory {
         let lower = name.lowercased()
         if lower.contains("salt") { return .salt }
         if lower.contains("starter") || lower.contains("levain")
             || lower.contains("poolish") || lower.contains("biga")
             || lower.contains("yeast") { return .leaven }
+        // Liquid keywords are parenthesized as a group so the `&&` for
+        // melted-butter doesn't gobble the trailing `||` chain. Oils stay
+        // out of the liquid chain entirely — oil is a fat in bread math.
         if lower.contains("water") || lower.contains("milk")
             || lower.contains("egg") || lower.contains("juice")
-            || lower.contains("oil") && !lower.contains("olive oil")
-            || lower.contains("butter") && lower.contains("melted") {
+            || (lower.contains("butter") && lower.contains("melted")) {
             return .liquid
         }
         if lower.contains("sugar") || lower.contains("honey")
