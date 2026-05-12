@@ -50,6 +50,18 @@ enum CCFormat {
         return m == 0 ? "\(h)h" : "\(h)h \(m)m"
     }
 
+    /// "60 → 60m", "(60, 90) → 60m – 90m". Used everywhere a stage's
+    /// duration is displayed so ranged stages (Stage 18.5a) render the
+    /// window the source actually published rather than collapsing to the
+    /// lower bound. Pass `Stage` directly so callers don't have to know
+    /// the two fields.
+    static func stageDuration(_ stage: Stage) -> String {
+        if let upper = stage.durationMaxMin, upper > stage.durationMin {
+            return "\(duration(stage.durationMin))–\(duration(upper))"
+        }
+        return duration(stage.durationMin)
+    }
+
     /// "12h end-to-end"
     static func endToEndHours(_ minutes: Int) -> String {
         "\(Int(round(Double(minutes) / 60.0)))h end-to-end"

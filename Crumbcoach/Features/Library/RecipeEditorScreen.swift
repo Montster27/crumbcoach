@@ -627,12 +627,45 @@ private struct StageRow: View {
             .pickerStyle(.menu)
             .labelsHidden()
 
-            HStack {
+            HStack(spacing: 8) {
                 TextField("0", value: $stage.durationMin, format: .number)
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 70)
+                    .frame(width: 60)
+                // Range upper-bound field appears only when the user opts
+                // into a range (or the importer captured one). Keeping the
+                // single-value layout default avoids cluttering recipes
+                // that don't have a window.
+                if stage.durationMaxMin != nil {
+                    Text("–").foregroundStyle(.secondary)
+                    TextField("max", value: Binding(
+                        get: { stage.durationMaxMin ?? 0 },
+                        set: { stage.durationMaxMin = $0 == 0 ? nil : $0 }
+                    ), format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 60)
+                }
                 Text("min").foregroundStyle(.secondary)
+                Button {
+                    if stage.durationMaxMin == nil {
+                        // Default the upper bound 50% above the lower as a
+                        // sane starting point; user can edit immediately.
+                        let suggestion = max(stage.durationMin + 15,
+                                              Int(Double(stage.durationMin) * 1.5))
+                        stage.durationMaxMin = suggestion
+                    } else {
+                        stage.durationMaxMin = nil
+                    }
+                } label: {
+                    Image(systemName: stage.durationMaxMin == nil
+                          ? "plus.rectangle.on.rectangle"
+                          : "rectangle.slash")
+                        .accessibilityLabel(stage.durationMaxMin == nil
+                                            ? "Add range upper bound"
+                                            : "Remove range upper bound")
+                }
+                .buttonStyle(.borderless)
                 Spacer()
                 TextField("Temp", value: Binding(
                     get: { stage.temperatureC ?? 0 },

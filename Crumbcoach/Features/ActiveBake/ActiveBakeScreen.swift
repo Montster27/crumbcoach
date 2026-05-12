@@ -474,11 +474,11 @@ struct ActiveBakeScreen: View {
 
             Spacer()
 
-            Text(CCFormat.duration(stage.durationMin))
+            Text(CCFormat.stageDuration(stage))
                 .font(Typography.mono(11))
                 .foregroundStyle(Theme.slate500)
                 .padding(.top, 4)
-                .frame(width: 60, alignment: .trailing)
+                .frame(width: 80, alignment: .trailing)
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 12)

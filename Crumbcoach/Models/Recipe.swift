@@ -88,7 +88,14 @@ enum StageKind: String, Codable, CaseIterable {
 struct Stage: Identifiable, Codable, Hashable {
     var id = UUID()
     var kind: StageKind
-    var durationMin: Int             // typical / baseline
+    var durationMin: Int             // typical / baseline (lower bound of a range)
+    /// Optional upper bound when the source published a range
+    /// ("rise 60 to 90 minutes"). When nil, this stage has a single
+    /// duration. When set, UI surfaces should render "Xm–Ym" and the
+    /// scheduler keeps using `durationMin` for the conservative timeline.
+    /// Stage 18.5a addition; pre-existing persisted recipes decode with
+    /// nil and behave as before.
+    var durationMaxMin: Int? = nil
     var temperatureC: Double?        // optional ambient or oven temp
     var note: String? = nil
     var scaldRef: String? = nil      // "yudane" | "tangzhong" — links to preferment block

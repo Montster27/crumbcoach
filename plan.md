@@ -2233,6 +2233,54 @@ UI surfaces:
 This half delivers value on its own — the user sees what the
 source actually said. Maybe 2–3 hours of work.
 
+#### 18.5a — completion notes
+
+Landed exactly as sketched, no scope surprises.
+
+- `Stage.durationMaxMin: Int? = nil` added to `Models/Recipe.swift`.
+  Optional with default, so every existing recipe initializer
+  (sample data, journal serialized entries, editor `blank()`, etc.)
+  decodes unchanged and behaves as before — single-value duration
+  unless explicitly set.
+- `RecipeImporter.parseDurationMinutes` is now `parseDurationWindow`
+  returning `(lower: Int, upper: Int?)`. Range pattern fills both;
+  compound and single fill `(value, nil)`. A back-compat
+  `parseDurationMinutes` shim is kept so nothing outside the
+  importer broke. `mapStages` reads both from the window into
+  `durationMin` + `durationMaxMin`.
+- `CCFormat.stageDuration(_ stage:)` is the single display helper.
+  Returns `"60m"` for a single value, `"60m–1h 30m"` for a range.
+  Three display sites switched over:
+  - `ActiveBakeScreen` timeline row
+  - `RecipeDetailScreen` stages list
+  - `RecipeExporter` markdown export
+- Schedule math (`Scheduler.adjustedDuration`,
+  `stageStartTimes`, end-to-end sums) deliberately *did not*
+  change — they keep using `durationMin` so the scheduler still
+  builds a conservative timeline. Showing the range is purely a
+  display concern at this stage; switching the scheduler over to
+  an upper-bound or midpoint mode is a deliberate Phase C polish
+  if user testing asks for it.
+- `RecipeEditorScreen` `StageRow` grew a range toggle. Default is
+  a single field. Tapping the plus-rectangle icon adds an upper-
+  bound field next to the lower with a `–` separator; tapping
+  the slash icon removes it. New range default = max(lower+15,
+  lower×1.5) so the user lands on a sensible starting value they
+  can edit immediately.
+
+Known gaps deliberately left for 18.5b / later:
+
+- The Scheduler still ignores the upper bound. Stage 18.5b can
+  promote the upper-bound when kitchen learning suggests a slow
+  kitchen needs the extra time.
+- Validation: if the user enters `max < min`, we don't swap or
+  warn. The save path's `weightsError` doesn't check ranges. A
+  three-line addition could swap or surface — left out to keep
+  this stage tight.
+- The Scheduler timeline preview doesn't yet caption ranged
+  stages with "start checking at 60 min". Documented as a polish
+  item once the timeline gets a real proof-state UI.
+
 #### 18.5b — Kitchen-learned timings from journal data
 
 `ActiveBake.StageHistoryEntry` already captures `enteredAt` and
@@ -2608,7 +2656,8 @@ visibility.)
 | 17.5a | done     |       | Import gap-filling — static volume-to-grams table + duration parsing + egg counts + parens/"and" fixes. See "Stage 17.5a — completion notes". |
 | 17.5b | sketched |       | Import gap-filling — Foundation Models fallback. |
 | 18    | done     |       | Share & export. See "Stage 18 — completion notes". |
-| 18.5  | sketched |       | Duration ranges + kitchen-learned timings. See "Stage 18.5". |
+| 18.5a | done     |       | Duration ranges captured + displayed. See "Stage 18.5a — completion notes". |
+| 18.5b | sketched |       | Kitchen-learned timings from journal data. |
 
 ### Phase C — platform expansion (1.x → 2.0)
 

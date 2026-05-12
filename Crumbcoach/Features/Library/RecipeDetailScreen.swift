@@ -393,10 +393,10 @@ struct RecipeDetailScreen: View {
                             }
                         }
                         Spacer()
-                        Text(CCFormat.duration(s.durationMin))
+                        Text(CCFormat.stageDuration(s))
                             .font(Typography.mono(13))
                             .foregroundStyle(Theme.slate700)
-                            .frame(width: 90, alignment: .trailing)
+                            .frame(width: 110, alignment: .trailing)
                         Text(s.temperatureC != nil ? "\(Int(s.temperatureC!))°C" : "—")
                             .font(Typography.mono(13))
                             .foregroundStyle(Theme.slate500)

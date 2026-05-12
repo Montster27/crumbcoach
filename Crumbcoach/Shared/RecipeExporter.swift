@@ -48,7 +48,7 @@ enum RecipeExporter {
         lines.append("")
         for (i, stage) in recipe.stages.enumerated() {
             let durLabel = stage.durationMin > 0
-                ? " · \(CCFormat.duration(stage.durationMin))"
+                ? " · \(CCFormat.stageDuration(stage))"
                 : ""
             let tempLabel = stage.temperatureC.map { " · \(Int($0))°C" } ?? ""
             lines.append("\(i + 1). **\(stage.kind.rawValue)**\(durLabel)\(tempLabel)")
