@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Recipe library — search + filter chips + 3-column grid of recipe cards.
 
@@ -8,8 +9,10 @@ struct LibraryScreen: View {
     @State private var filter: String = "all"
     @State private var editorOpen: Bool = false
     /// URL seed for the editor when the user lands here via a
-    /// `crumbcoach://import?url=…` deep link from the share extension.
+    /// `crumbcoach://import?url=…` deep link from the share extension,
+    /// or via the toolbar's "Paste URL" button.
     @State private var editorImportSeed: String? = nil
+    @State private var showClipboardEmptyAlert: Bool = false
 
     private let filters: [(String, String)] = [
         ("all",       "All"),
@@ -71,8 +74,10 @@ struct LibraryScreen: View {
                         .stroke(Theme.border1, lineWidth: 1)
                 )
 
-                Button(action: { editorOpen = true }) { Label("Paste URL", systemImage: "link") }
-                    .ccSecondary()
+                Button(action: { pasteURLFromClipboard() }) {
+                    Label("Paste URL", systemImage: "link")
+                }
+                .ccSecondary()
                 Button(action: { editorOpen = true }) { Label("New recipe", systemImage: "plus") }
                     .ccPrimary()
             }
@@ -114,6 +119,11 @@ struct LibraryScreen: View {
         .onChange(of: state.pendingImportURL) { _, _ in
             openEditorIfPendingImport()
         }
+        .alert("No URL on clipboard", isPresented: $showClipboardEmptyAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Copy a recipe URL (any http/https link), then tap Paste URL again — the editor will open with it pre-filled and Import does the rest.")
+        }
     }
 
     /// Drain `state.pendingImportURL` (set by the deep-link handler) and
@@ -124,6 +134,25 @@ struct LibraryScreen: View {
         editorImportSeed = pending
         editorOpen = true
         state.pendingImportURL = nil
+    }
+
+    /// Read the system pasteboard, validate it looks like an http(s) URL,
+    /// and seed the editor with it. If the clipboard is empty or holds
+    /// something that isn't a URL, show an explanatory alert rather than
+    /// silently opening a blank editor — "Paste URL" doing nothing is
+    /// confusing.
+    private func pasteURLFromClipboard() {
+        let raw = (UIPasteboard.general.string ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty,
+              let url = URL(string: raw),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            showClipboardEmptyAlert = true
+            return
+        }
+        editorImportSeed = raw
+        editorOpen = true
     }
 
     private func statCount(_ n: Int, _ label: String) -> some View {
