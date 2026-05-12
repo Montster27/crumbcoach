@@ -9,6 +9,8 @@ struct CrumbcoachApp: App {
         // Force the notification delegate to register before the first scene
         // connects, so a tap-from-cold-launch is still delivered.
         _ = NotificationManager.shared
+        // TelemetryManager subscribes inside `AppState.init` based on the
+        // persisted preference — see Stage 9 notes.
     }
 
     var body: some Scene {
@@ -38,6 +40,11 @@ struct CrumbcoachApp: App {
                 )) {
                     OnboardingScreen(state: appState)
                 }
+                .onOpenURL { url in
+                    // crumbcoach://recipe/<id> → open the detail.
+                    // crumbcoach://import?url=<encoded> → editor with URL.
+                    appState.handleIncomingURL(url)
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -46,6 +53,9 @@ struct CrumbcoachApp: App {
                 // (Settings → Notifications). Resync so the denied banner is
                 // accurate when the user lands on the bake screen.
                 Task { await appState.refreshNotificationAuthStatus() }
+                // Pull any newer cloud state. Cheap no-op when disabled or
+                // when iCloud isn't available.
+                Task { await appState.syncWithCloud() }
             case .background, .inactive:
                 // Flush any pending debounced save before iOS suspends us.
                 appState.saveNow()

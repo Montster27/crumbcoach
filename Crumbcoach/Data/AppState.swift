@@ -27,10 +27,22 @@ final class AppState {
     /// short-lived hand-off slot.
     var pendingDiagnosticPhoto: String? = nil
 
+    /// Recipe source URL waiting to be loaded into the editor. Set by the
+    /// `crumbcoach://import?url=…` deep-link handler (Stage 18 share
+    /// extension); consumed by `LibraryScreen` which opens the editor and
+    /// clears the slot. Not persisted — purely a transient hand-off.
+    var pendingImportURL: String? = nil
+
     /// Cached system permission state for local notifications. Refreshed on
     /// app foreground and after we prompt. Not persisted — the system is the
     /// source of truth.
     var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
+
+    /// Set when a photo save fails (JPEG encode error, disk full, etc).
+    /// AppShell observes this and presents a non-blocking alert; the user
+    /// dismisses it via `clearPhotoError()`. Not persisted — the error is
+    /// only meaningful for the current attempt.
+    var photoErrorMessage: String? = nil
 
     // MARK: Persistent data
     var recipes: [Recipe]
@@ -46,6 +58,20 @@ final class AppState {
     /// True once the user has cleared onboarding (entered their name). The
     /// CrumbcoachApp scene presents `OnboardingScreen` until this flips true.
     var hasOnboarded: Bool
+    /// Whether the user opts in to local crash + diagnostic collection via
+    /// `TelemetryManager`. The toggle in Settings flips this; CrumbcoachApp
+    /// applies it on launch and on every change.
+    var telemetryEnabled: Bool
+    /// Display weight unit. Grams is the default; oz flips the recipe
+    /// editor input and every weight callout across the app.
+    var units: Units
+    /// Source the kitchen temperature reading comes from. `.manual` ships
+    /// in v1; `.homeKit` is the stub Settings exposes for Stage 20.
+    var kitchenTempSource: KitchenTempSource
+    /// Whether the user has opted in to iCloud Drive sync. CloudSyncManager
+    /// owns the actual subscription / pull / push lifecycle; this field is
+    /// just the persisted preference.
+    var cloudSyncEnabled: Bool
 
     // MARK: Derived
     var insights: [Insight] {
@@ -75,6 +101,10 @@ final class AppState {
             // disk, treat them as onboarded even if the flag wasn't persisted.
             self.hasOnboarded       = loaded.hasOnboarded
                 || !loaded.userName.trimmingCharacters(in: .whitespaces).isEmpty
+            self.telemetryEnabled   = loaded.telemetryEnabled
+            self.units              = loaded.units
+            self.kitchenTempSource  = loaded.kitchenTempSource
+            self.cloudSyncEnabled   = loaded.cloudSyncEnabled
         } else {
             // Fresh install: seed the curated recipe library + a starter so
             // the library/starter screens have something to explore, but DO
@@ -91,7 +121,23 @@ final class AppState {
             self.userName           = ""
             self.selectedRecipeId   = SampleRecipes.all.first?.id ?? ""
             self.hasOnboarded       = false
+            self.telemetryEnabled   = true
+            self.units              = .grams
+            self.kitchenTempSource  = .manual
+            self.cloudSyncEnabled   = false
             saveSoon()
+        }
+
+        // Apply the persisted telemetry preference up-front so MetricKit
+        // subscription matches the user's choice from launch onward. The
+        // call is idempotent and lightweight, safe to make every init.
+        TelemetryManager.shared.setEnabled(self.telemetryEnabled)
+        // Same shape for cloud sync — keep the manager's internal flag in
+        // step with the persisted preference. Actual pull happens via
+        // `syncWithCloud()` on app foreground (see CrumbcoachApp).
+        let initialCloudSync = self.cloudSyncEnabled
+        Task { @MainActor in
+            CloudSyncManager.shared.setEnabled(initialCloudSync)
         }
     }
 
@@ -114,9 +160,19 @@ final class AppState {
                 ovenStatus: self.ovenStatus,
                 userName: self.userName,
                 selectedRecipeId: self.selectedRecipeId,
-                hasOnboarded: self.hasOnboarded
+                hasOnboarded: self.hasOnboarded,
+                telemetryEnabled: self.telemetryEnabled,
+                units: self.units,
+                kitchenTempSource: self.kitchenTempSource,
+                cloudSyncEnabled: self.cloudSyncEnabled
             )
             self.persistence.save(snapshot)
+            // After local write, mirror to iCloud Drive when enabled. The
+            // push is async / off-main; it can't block the save loop.
+            if self.cloudSyncEnabled {
+                let url = self.persistence.fileURL
+                Task { await CloudSyncManager.shared.push(localStateURL: url) }
+            }
         }
     }
 
@@ -134,9 +190,17 @@ final class AppState {
             ovenStatus: ovenStatus,
             userName: userName,
             selectedRecipeId: selectedRecipeId,
-            hasOnboarded: hasOnboarded
+            hasOnboarded: hasOnboarded,
+            telemetryEnabled: telemetryEnabled,
+            units: units,
+            kitchenTempSource: kitchenTempSource,
+            cloudSyncEnabled: cloudSyncEnabled
         )
         persistence.save(snapshot)
+        if cloudSyncEnabled {
+            let url = persistence.fileURL
+            Task { await CloudSyncManager.shared.push(localStateURL: url) }
+        }
     }
 
     /// Replace everything with the Marisol-style demo (named starters, sample
@@ -157,6 +221,7 @@ final class AppState {
         // The sample bake isn't actually scheduled, so any pending bake
         // notifications point at the old data — clear them.
         NotificationManager.shared.cancelAllBakeReminders()
+        LiveActivityManager.shared.end(immediate: true)
         saveSoon()
     }
 
@@ -173,6 +238,7 @@ final class AppState {
         starters = SampleStarters.all
         selectedRecipeId = SampleRecipes.all.first?.id ?? ""
         NotificationManager.shared.cancelAllBakeReminders()
+        LiveActivityManager.shared.end(immediate: true)
         saveNow()
     }
 
@@ -187,9 +253,21 @@ final class AppState {
 
     // MARK: Navigation helpers
 
+    /// Tracks `accessibilityReduceMotion`. AppShell mirrors the system value
+    /// into this each time the user toggles Reduce Motion so screen
+    /// transitions skip the slide/fade animation. Default `false` keeps the
+    /// behavior unchanged for everyone else.
+    var reduceMotion: Bool = false
+
     func goTo(_ screen: Screen) {
-        withAnimation(.easeOut(duration: 0.18)) {
+        if reduceMotion {
             self.screen = screen
+        } else {
+            // Spring with tight damping — feels snappier than the previous
+            // `easeOut(0.18)` curve while still cushioning the arrival.
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                self.screen = screen
+            }
         }
     }
 
@@ -197,6 +275,32 @@ final class AppState {
         selectedRecipeId = id
         goTo(.recipe(id: id))
         saveSoon()
+    }
+
+    /// Route an incoming `crumbcoach://…` URL. Two shapes:
+    ///   - `crumbcoach://recipe/<id>`  — open the recipe detail.
+    ///   - `crumbcoach://import?url=<encoded>` — stash the URL in
+    ///     `pendingImportURL` and navigate to the library so the editor
+    ///     opens with the URL pre-filled (consumed by LibraryScreen).
+    /// Unknown URLs are ignored — the caller has no other recourse.
+    func handleIncomingURL(_ url: URL) {
+        guard url.scheme?.lowercased() == "crumbcoach" else { return }
+        let host = (url.host ?? "").lowercased()
+        let path = url.pathComponents.filter { $0 != "/" }
+        if host == "recipe", let id = path.first, recipe(id) != nil {
+            openRecipe(id)
+            return
+        }
+        if host == "import" {
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            if let encoded = components?.queryItems?
+                .first(where: { $0.name == "url" })?.value,
+               !encoded.isEmpty {
+                pendingImportURL = encoded
+                goTo(.library)
+            }
+            return
+        }
     }
 
     // MARK: Data lookups
@@ -208,8 +312,15 @@ final class AppState {
 
     func markFold(_ index: Int) {
         guard var bake = activeBake else { return }
+        let previousFolds = bake.foldsDone
         bake.foldsDone = max(0, min(bake.totalFolds, index))
         activeBake = bake
+        // Only fire a haptic when the value actually changed — tapping the
+        // already-done fold count shouldn't buzz.
+        if bake.foldsDone != previousFolds {
+            Haptics.tick()
+            pushLiveActivityUpdate()
+        }
         saveSoon()
     }
 
@@ -256,17 +367,104 @@ final class AppState {
         saveSoon()
     }
 
+    /// Flip the telemetry opt-in flag and notify `TelemetryManager` so it
+    /// subscribes / unsubscribes from MetricKit and (on disable) deletes
+    /// stored payloads. Idempotent — calling with the current value is a
+    /// no-op.
+    func setTelemetryEnabled(_ enabled: Bool) {
+        guard enabled != telemetryEnabled else { return }
+        telemetryEnabled = enabled
+        TelemetryManager.shared.setEnabled(enabled)
+        saveSoon()
+    }
+
+    /// Switch between grams and ounces. Persistent recipe weights stay in
+    /// grams; this only flips display + editor input. Idempotent.
+    func setUnits(_ newUnits: Units) {
+        guard newUnits != units else { return }
+        units = newUnits
+        saveSoon()
+    }
+
+    /// Pick the source for kitchen temperature. v1 only supports `.manual`
+    /// end-to-end — `.homeKit` is a stub the Scheduler doesn't yet honor,
+    /// but persisting the choice keeps the user's preference around for
+    /// Stage 20.
+    func setKitchenTempSource(_ source: KitchenTempSource) {
+        guard source != kitchenTempSource else { return }
+        kitchenTempSource = source
+        saveSoon()
+    }
+
+    /// Toggle iCloud Drive sync. Enabling kicks off a pull-then-push so the
+    /// device immediately reconciles with whatever's already in the user's
+    /// iCloud Drive (e.g. set up on a different iPad first).
+    func setCloudSyncEnabled(_ enabled: Bool) {
+        guard enabled != cloudSyncEnabled else { return }
+        cloudSyncEnabled = enabled
+        saveSoon()
+        // CloudSyncManager is MainActor-isolated; bounce the toggle + first
+        // sync onto main so we don't trip Swift 6 isolation rules.
+        Task { @MainActor in
+            CloudSyncManager.shared.setEnabled(enabled)
+            if enabled {
+                await self.syncWithCloud()
+            }
+        }
+    }
+
+    /// Pull any newer cloud copy, then push the local file. Idempotent and
+    /// safe to call from app-foreground / Settings "Sync now". When the
+    /// pull replaces local state, reload every observable field so the live
+    /// UI matches the new file.
+    func syncWithCloud() async {
+        guard cloudSyncEnabled else { return }
+        let url = persistence.fileURL
+        let pulled = await CloudSyncManager.shared.pullIfNewer(into: url)
+        if pulled, let loaded: PersistedState = persistence.load() {
+            await MainActor.run { self.reload(from: loaded) }
+        }
+        await CloudSyncManager.shared.push(localStateURL: url)
+    }
+
+    /// Apply a freshly-loaded `PersistedState` to the live observable
+    /// fields. Used after a cloud pull replaces the local file — we don't
+    /// re-init AppState because that would recreate the persistence
+    /// controller, drop in-flight save tasks, and discard the
+    /// non-persisted fields (notification auth, photo error, etc).
+    private func reload(from loaded: PersistedState) {
+        self.recipes            = loaded.recipes
+        self.starters           = loaded.starters
+        self.journal            = loaded.journal
+        self.activeBake         = loaded.activeBake
+        self.kitchenTempC       = loaded.kitchenTempC
+        self.kitchenHumidityPct = loaded.kitchenHumidityPct
+        self.ovenStatus         = loaded.ovenStatus
+        self.userName           = loaded.userName
+        self.selectedRecipeId   = loaded.selectedRecipeId
+        self.hasOnboarded       = loaded.hasOnboarded
+            || !loaded.userName.trimmingCharacters(in: .whitespaces).isEmpty
+        self.telemetryEnabled   = loaded.telemetryEnabled
+        self.units              = loaded.units
+        self.kitchenTempSource  = loaded.kitchenTempSource
+        self.cloudSyncEnabled   = loaded.cloudSyncEnabled
+    }
+
     // MARK: Photos
 
     /// Save an image to disk and attach a `BakePhoto` entry to the active
-    /// bake's current (or specified) stage. Returns the stored filename so
-    /// callers that want to surface the photo elsewhere (e.g. the diagnostic
-    /// screen showing the newly-picked image) can read it back.
+    /// bake's current (or specified) stage. Returns the stored filename, or
+    /// nil if the underlying disk write failed — callers don't need to do
+    /// anything beyond that; `photoErrorMessage` is set so the global alert
+    /// will surface a user-visible explanation.
     @discardableResult
     func addPhoto(_ image: UIImage,
                   toStage stageIndex: Int? = nil,
-                  note: String = "Just now") -> String {
-        let filename = persistence.savePhoto(image)
+                  note: String = "Just now") -> String? {
+        guard let filename = persistence.savePhoto(image) else {
+            photoErrorMessage = "Couldn't save that photo. Try again — your iPad may be low on storage."
+            return nil
+        }
         if var bake = activeBake {
             let idx = stageIndex ?? bake.currentStageIndex
             let photo = ActiveBake.BakePhoto(
@@ -283,8 +481,11 @@ final class AppState {
 
     /// Save an image and stash it on the matching starter as its newest photo.
     @discardableResult
-    func setStarterPhoto(_ image: UIImage, starterId: String) -> String {
-        let filename = persistence.savePhoto(image)
+    func setStarterPhoto(_ image: UIImage, starterId: String) -> String? {
+        guard let filename = persistence.savePhoto(image) else {
+            photoErrorMessage = "Couldn't save that photo. Try again — your iPad may be low on storage."
+            return nil
+        }
         if let idx = starters.firstIndex(where: { $0.id == starterId }) {
             starters[idx].lastPhoto = filename
             starters[idx].lastPhotoTime = CCFormat.clockTime.string(from: Date())
@@ -295,9 +496,93 @@ final class AppState {
 
     /// Save a diagnostic photo and hand it off to the diagnostic screen via
     /// `pendingDiagnosticPhoto`. The diagnostic screen consumes the value on
-    /// appear and clears it.
+    /// appear and clears it. Falls through to the global photo error if the
+    /// save fails — the diagnostic screen stays on idle.
     func queueDiagnosticPhoto(_ image: UIImage) {
-        pendingDiagnosticPhoto = persistence.savePhoto(image)
+        guard let filename = persistence.savePhoto(image) else {
+            photoErrorMessage = "Couldn't save that photo. Try again — your iPad may be low on storage."
+            return
+        }
+        pendingDiagnosticPhoto = filename
+    }
+
+    /// Dismiss the photo-save error alert.
+    func clearPhotoError() {
+        photoErrorMessage = nil
+    }
+
+    // MARK: Starters
+
+    /// Create a new starter and append it to the user's starters. Returns the
+    /// generated id so the caller can immediately select the new chip.
+    @discardableResult
+    func addStarter(name: String,
+                    flourType: String,
+                    hydrationPct: Double = 100) -> String {
+        let id = UUID().uuidString
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let starter = Starter(
+            id: id,
+            name: trimmedName.isEmpty ? "New starter" : trimmedName,
+            flourType: flourType,
+            hydrationPct: hydrationPct,
+            ageDesc: "Just started",
+            weightGrams: 0,
+            state: "Just fed",
+            stateKind: .good,
+            storage: .counter,
+            lastFeed: "Just now",
+            peakAt: "—",
+            nextFeed: "In 4–6h",
+            peakHeightPct: 0,
+            riseHistory: Array(repeating: 0, count: 12),
+            feedings: []
+        )
+        starters.append(starter)
+        saveSoon()
+        return id
+    }
+
+    /// Append a feeding entry to the starter and reset its display state to
+    /// "just fed". The rise chart can't actually rewind without a live data
+    /// source — Stage 20 (HomeKit / Sidekick) will replace this with sampled
+    /// values; for now the feeding is recorded and the metadata reflects it.
+    func logStarterFeeding(starterId: String, ratio: String = "1:5:5") {
+        guard let idx = starters.firstIndex(where: { $0.id == starterId }) else { return }
+        let when = "Today \(CCFormat.clockTime.string(from: Date()))"
+        let ambient = starters[idx].storage == .fridge ? 4.0 : kitchenTempC
+        starters[idx].feedings.insert(
+            StarterFeeding(when: when, ratio: ratio, ambientC: ambient),
+            at: 0
+        )
+        starters[idx].lastFeed = "Just now"
+        starters[idx].peakAt = "—"
+        starters[idx].nextFeed = starters[idx].storage == .fridge ? "When you bake" : "In 4–6h"
+        starters[idx].state = "Just fed"
+        starters[idx].stateKind = .good
+        saveSoon()
+    }
+
+    /// Switch a starter between counter / fridge / vacation storage. Refreshes
+    /// the visible state pill so the user sees the change reflected.
+    func setStarterStorage(starterId: String, storage: StarterStorage) {
+        guard let idx = starters.firstIndex(where: { $0.id == starterId }) else { return }
+        starters[idx].storage = storage
+        switch storage {
+        case .counter:
+            starters[idx].state = "Resting · counter"
+            starters[idx].stateKind = .info
+            starters[idx].nextFeed = "In 4–6h"
+        case .fridge:
+            starters[idx].state = "Resting · fridge"
+            starters[idx].stateKind = .info
+            starters[idx].nextFeed = "When you bake"
+        case .vacation:
+            starters[idx].state = "Resting · vacation"
+            starters[idx].stateKind = .neutral
+            starters[idx].nextFeed = "Long sleep"
+        }
+        saveSoon()
     }
 
     // MARK: Bake lifecycle
@@ -351,10 +636,20 @@ final class AppState {
             history: history,
             stagePhotos: [:],
             foldsDone: 0,
-            totalFolds: max(1, foldSource?.totalFolds ?? 4)
+            totalFolds: max(1, foldSource?.totalFolds ?? 4),
+            schedule: schedule
         )
         NotificationManager.shared.scheduleBakeReminders(for: schedule,
                                                            recipe: recipe)
+        // Hand off to the lock-screen / Dynamic Island UI. The activity
+        // updates on every fold/advance/skip and ends on completeBake.
+        if let bake = activeBake {
+            LiveActivityManager.shared.start(
+                recipeTitle: recipe.title,
+                startedAt: schedule.startTime,
+                state: liveActivityState(for: bake, recipe: recipe)
+            )
+        }
         saveSoon()
         goTo(.activeBake)
     }
@@ -363,11 +658,13 @@ final class AppState {
     /// At the last stage, leave `currentStageIndex` in place but flip the
     /// history entry to `.done` so `isComplete` flips true.
     func advanceStage() {
+        Haptics.advance()
         moveStage(markingCurrentAs: .done)
     }
 
     /// Mark the current stage skipped and move to the next non-skipped stage.
     func skipStage() {
+        Haptics.advance()
         moveStage(markingCurrentAs: .skipped)
     }
 
@@ -376,7 +673,8 @@ final class AppState {
     private func moveStage(markingCurrentAs status: StepStatus) {
         guard var bake = activeBake, let recipe = recipe(bake.recipeId) else { return }
         let now = Date()
-        if let outIdx = bake.history.firstIndex(where: { $0.stageIndex == bake.currentStageIndex }) {
+        let outgoingRecipeIdx = bake.currentStageIndex
+        if let outIdx = bake.history.firstIndex(where: { $0.stageIndex == outgoingRecipeIdx }) {
             bake.history[outIdx].status = status
             bake.history[outIdx].exitedAt = now
         }
@@ -399,8 +697,78 @@ final class AppState {
         }
         // No next stage: bake is complete. The history entry was just flipped
         // so `bake.isComplete` is now true and the UI surfaces the wrap-up.
+
+        // Rebalance the stored schedule against wall-clock NOW and replace the
+        // pending reminder set. Done/skipped stages keep their already-elapsed
+        // times; the just-transitioned stage's end becomes `now`, and every
+        // remaining stage slides to stack from there (re-applying Q10 against
+        // the bake's kitchen temp). Pre-Stage-8 bakes have no `schedule`
+        // stored, so we leave their notification cadence alone.
+        if var sched = bake.schedule,
+           let outScheduleIdx = sched.steps.firstIndex(where: { $0.stageIndex == outgoingRecipeIdx }) {
+            sched = Scheduler.rebalance(
+                sched,
+                currentStageIndex: outScheduleIdx,
+                newCurrentEnd: now,
+                ambientC: bake.kitchenTempC,
+                historyPct: 0,
+                recipe: recipe
+            )
+            // Mark the outgoing schedule step with the same terminal status
+            // the history just got — keeps the two views in sync, and lets
+            // the timeline strip reflect skipped stages visually.
+            sched.steps[outScheduleIdx].status = status
+            bake.schedule = sched
+            bake.bakeOutAt = sched.endTime
+
+            if bake.isComplete {
+                NotificationManager.shared.cancelAllBakeReminders()
+            } else {
+                NotificationManager.shared.scheduleBakeReminders(for: sched, recipe: recipe)
+            }
+        }
+
         activeBake = bake
+        pushLiveActivityUpdate()
         saveSoon()
+    }
+
+    /// Compute the current activity-visible ContentState and push it to the
+    /// running Live Activity (no-op when no activity is in flight). Used
+    /// after fold ticks and stage transitions.
+    private func pushLiveActivityUpdate() {
+        guard let bake = activeBake, let recipe = recipe(bake.recipeId) else { return }
+        LiveActivityManager.shared.update(liveActivityState(for: bake, recipe: recipe))
+    }
+
+    /// Snapshot of bake/recipe state in the shape the widget renders.
+    /// Pulled out so both `startBake` and update calls can share it.
+    private func liveActivityState(for bake: ActiveBake,
+                                    recipe: Recipe) -> ActiveBakeAttributes.ContentState {
+        let stageName = recipe.stages.indices.contains(bake.currentStageIndex)
+            ? recipe.stages[bake.currentStageIndex].kind.rawValue
+            : "—"
+        // Minutes from now until the next scheduled action point. Prefer
+        // the rebalanced schedule when available (Stage 8); fall back to
+        // the bake-out target.
+        let now = Date()
+        let next: Date = {
+            if let sched = bake.schedule {
+                let upcoming = sched.steps
+                    .first { $0.status != .done && $0.status != .skipped && $0.start > now }
+                return upcoming?.start ?? sched.endTime
+            }
+            return bake.bakeOutAt
+        }()
+        let minutes = max(Int(next.timeIntervalSince(now) / 60), -999)
+        return ActiveBakeAttributes.ContentState(
+            stageName: stageName,
+            foldsDone: bake.foldsDone,
+            totalFolds: bake.totalFolds,
+            minutesToNextAction: minutes,
+            bakeOutAt: bake.bakeOutAt,
+            isComplete: bake.isComplete
+        )
     }
 
     /// Log the bake to the journal, update the recipe's lastBake, clear
@@ -456,6 +824,8 @@ final class AppState {
 
         activeBake = nil
         NotificationManager.shared.cancelAllBakeReminders()
+        LiveActivityManager.shared.end()
+        Haptics.success()
         saveSoon()
         goTo(.home)
     }

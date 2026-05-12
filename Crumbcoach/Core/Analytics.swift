@@ -52,8 +52,10 @@ enum Analytics {
 
     /// Produce a short list of plain-English insights from the user's recent
     /// bakes.  Returns at most `limit` insights, ordered by what we think is
-    /// most actionable.
+    /// most actionable. Returns an empty list when there's no journal to read
+    /// — callers gate the UI on `isEmpty` rather than rendering a fake card.
     static func generateInsights(from journal: [JournalEntry], limit: Int = 3) -> [Insight] {
+        guard !journal.isEmpty else { return [] }
         var out: [Insight] = []
 
         // 1. Trend on the most-baked recipe
@@ -87,13 +89,6 @@ enum Analytics {
                     : "Right in the sweet spot for most recipes."
             ))
         }
-
-        // 3. Flour stub — placeholder until we capture ingredient brand
-        out.append(Insight(
-            kind: .flour,
-            headline: "Switching to King Arthur bread flour shortened your bulk by ~20 min.",
-            detail: "Compared to Central Milling. Hydration capacity is similar, but fermentation reads faster."
-        ))
 
         return Array(out.prefix(limit))
     }

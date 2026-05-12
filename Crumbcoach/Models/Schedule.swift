@@ -42,6 +42,12 @@ struct ActiveBake: Identifiable, Codable, Hashable {
     var stagePhotos: [Int: [BakePhoto]] = [:]
     var foldsDone: Int = 0
     var totalFolds: Int = 4
+    /// The schedule the user confirmed at startBake, rebalanced on every
+    /// advance/skip so the remaining stages and their notifications stay
+    /// anchored to wall-clock reality. Optional + default = nil so persisted
+    /// pre-Stage-8 bakes decode cleanly; reminders for those bakes can't be
+    /// rescheduled, but everything else still works.
+    var schedule: Schedule? = nil
 
     struct StageHistoryEntry: Codable, Hashable {
         var stageIndex: Int

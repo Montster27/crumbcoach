@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Settings — name, notifications status, demo / start-over actions, about.
 // Intentionally light: this is not where we hide deep configuration. Keep it
@@ -7,14 +8,19 @@ import SwiftUI
 
 struct SettingsScreen: View {
     var state: AppState
+    @ObservedObject private var cloudSync = CloudSyncManager.shared
     @State private var nameDraft: String = ""
     @State private var showLoadDemoConfirm: Bool = false
     @State private var showStartOverConfirm: Bool = false
+    @State private var diagnosticShareItems: [Any]? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             profileCard
+            kitchenCard
             notificationsCard
+            cloudSyncCard
+            telemetryCard
             dataCard
             aboutCard
             Spacer(minLength: 0)
@@ -70,6 +76,73 @@ struct SettingsScreen: View {
         }
     }
 
+    // MARK: Kitchen
+
+    private var kitchenCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Kicker("Kitchen")
+                unitsRow
+                SoftDivider()
+                tempSourceRow
+            }
+        }
+    }
+
+    private var unitsRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Weight units")
+                    .font(Typography.ui(14, weight: .semibold))
+                    .foregroundStyle(Theme.slate900)
+                Text("Recipes are stored in grams; oz converts on display + edit.")
+                    .font(Typography.ui(12))
+                    .foregroundStyle(Theme.slate600)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Picker("Weight units",
+                   selection: Binding(
+                        get: { state.units },
+                        set: { state.setUnits($0) }
+                   )) {
+                Text("Grams").tag(Units.grams)
+                Text("Ounces").tag(Units.ounces)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 220)
+            .labelsHidden()
+        }
+    }
+
+    private var tempSourceRow: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Kitchen temperature source")
+                    .font(Typography.ui(14, weight: .semibold))
+                    .foregroundStyle(Theme.slate900)
+                Text(state.kitchenTempSource == .homeKit
+                     ? "HomeKit pairing arrives in a future update — the Scheduler still uses the slider for now."
+                     : "Slide the Scheduler's kitchen temperature manually each bake.")
+                    .font(Typography.ui(12))
+                    .foregroundStyle(Theme.slate600)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Picker("Kitchen temperature source",
+                   selection: Binding(
+                        get: { state.kitchenTempSource },
+                        set: { state.setKitchenTempSource($0) }
+                   )) {
+                Text("Manual").tag(KitchenTempSource.manual)
+                Text("HomeKit").tag(KitchenTempSource.homeKit)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 220)
+            .labelsHidden()
+        }
+    }
+
     // MARK: Notifications
 
     private var notificationsCard: some View {
@@ -114,6 +187,149 @@ struct SettingsScreen: View {
         case .denied: return "Off"
         case .notDetermined: return "Not asked yet"
         @unknown default: return "Unknown"
+        }
+    }
+
+    // MARK: Telemetry
+
+    private var telemetryCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Kicker("Diagnostics")
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Collect crash diagnostics on this iPad")
+                            .font(Typography.ui(14, weight: .semibold))
+                            .foregroundStyle(Theme.slate900)
+                        Text("Uses Apple's MetricKit to record crashes and hangs locally. Nothing is uploaded automatically — you choose when (or whether) to share a report.")
+                            .font(Typography.ui(12))
+                            .foregroundStyle(Theme.slate600)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Toggle("",
+                            isOn: Binding(
+                                get: { state.telemetryEnabled },
+                                set: { state.setTelemetryEnabled($0) }
+                            ))
+                        .labelsHidden()
+                        .tint(Theme.primary)
+                }
+
+                if state.telemetryEnabled {
+                    SoftDivider()
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Send a diagnostic report")
+                                .font(Typography.ui(13.5, weight: .medium))
+                                .foregroundStyle(Theme.slate900)
+                            Text(diagnosticDetail)
+                                .font(Typography.ui(11.5))
+                                .foregroundStyle(Theme.slate500)
+                        }
+                        Spacer()
+                        Button {
+                            if let body = TelemetryManager.shared.diagnosticReportText() {
+                                diagnosticShareItems = [body]
+                            }
+                        } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                        .ccSecondary(compact: true)
+                        .disabled(TelemetryManager.shared.storedPayloadFiles().isEmpty)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { diagnosticShareItems != nil },
+            set: { if !$0 { diagnosticShareItems = nil } }
+        )) {
+            if let items = diagnosticShareItems {
+                ShareActivitySheet(items: items)
+            }
+        }
+    }
+
+    private var diagnosticDetail: String {
+        let count = TelemetryManager.shared.storedPayloadFiles().count
+        switch count {
+        case 0:  return "No reports yet. MetricKit posts new payloads at most once a day."
+        case 1:  return "1 report ready to share."
+        default: return "\(count) reports ready to share."
+        }
+    }
+
+    // MARK: Cloud sync
+
+    @ViewBuilder
+    private var cloudSyncCard: some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Kicker("iCloud sync")
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Sync your bakes across iPads")
+                            .font(Typography.ui(14, weight: .semibold))
+                            .foregroundStyle(Theme.slate900)
+                        Text(cloudSyncDescription)
+                            .font(Typography.ui(12))
+                            .foregroundStyle(Theme.slate600)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Toggle("",
+                            isOn: Binding(
+                                get: { state.cloudSyncEnabled },
+                                set: { state.setCloudSyncEnabled($0) }
+                            ))
+                        .labelsHidden()
+                        .tint(Theme.primary)
+                        .disabled(!cloudSync.isAvailable)
+                }
+                if state.cloudSyncEnabled {
+                    SoftDivider()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sync now")
+                                .font(Typography.ui(13.5, weight: .medium))
+                                .foregroundStyle(Theme.slate900)
+                            Text(cloudSyncStatusLine)
+                                .font(Typography.ui(11.5))
+                                .foregroundStyle(Theme.slate500)
+                        }
+                        Spacer()
+                        Button {
+                            Task { await state.syncWithCloud() }
+                        } label: {
+                            Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .ccSecondary(compact: true)
+                        .disabled(cloudSync.status == .syncing)
+                    }
+                }
+            }
+        }
+    }
+
+    private var cloudSyncDescription: String {
+        if !cloudSync.isAvailable {
+            return "Sign in to iCloud (Settings → Apple ID → iCloud) to enable. Photos still live on each device."
+        }
+        return "Backs up your recipes, journal, and active bake to your iCloud Drive. Photos still live on each device."
+    }
+
+    private var cloudSyncStatusLine: String {
+        switch cloudSync.status {
+        case .disabled:               return "Disabled"
+        case .unavailable:            return "iCloud not available"
+        case .ready:                  return "Ready to sync"
+        case .syncing:                return "Syncing…"
+        case .syncedAt(let date):
+            let f = DateFormatter()
+            f.dateFormat = "MMM d, h:mm a"
+            return "Last synced \(f.string(from: date))"
+        case .failed(let msg):        return "Last sync failed: \(msg)"
         }
     }
 

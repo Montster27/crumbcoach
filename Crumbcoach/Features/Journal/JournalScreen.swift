@@ -6,6 +6,7 @@ import SwiftUI
 struct JournalScreen: View {
     var state: AppState
     @State private var filter: String = "All bakes"
+    @State private var shareItems: [Any]? = nil
 
     private var filteredEntries: [JournalEntry] {
         switch filter {
@@ -23,43 +24,69 @@ struct JournalScreen: View {
         }
     }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 24) {
-            // LEFT
-            VStack(spacing: 16) {
-                filtersRow
-                trendCard
-                ForEach(filteredEntries) { entry in
-                    JournalCard(entry: entry, recipe: state.recipe(entry.recipeId))
-                }
-            }
-            .frame(maxWidth: .infinity)
+    /// Country Sourdough is the only recipe whose bulk-time-vs-rating trend
+    /// the BulkTimeChart knows how to plot. Hide the card until the user has
+    /// enough of those bakes (3) for the trend to mean something.
+    private var hasCountryTrend: Bool {
+        state.journal.filter { $0.recipeId == "country" }.count >= 3
+    }
 
-            // RIGHT
-            VStack(spacing: 16) {
-                monthSummaryCard
-                ForEach(Array(state.insights.enumerated()), id: \.offset) { i, ins in
-                    SurfaceCard {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                CCIconView(icon: .sparkle, size: 14, color: Theme.accent)
-                                Kicker("Insight \(i + 1)", color: Theme.accent)
-                            }
-                            Text(ins.headline)
-                                .font(Typography.ui(13.5, weight: .medium))
-                                .foregroundStyle(Theme.slate900)
-                            Text(ins.detail)
-                                .font(Typography.ui(11.5))
-                                .foregroundStyle(Theme.slate500)
-                        }
+    var body: some View {
+        if state.journal.isEmpty {
+            EmptyJournalView { state.goTo(.scheduler) }
+        } else {
+            HStack(alignment: .top, spacing: 24) {
+                // LEFT
+                VStack(spacing: 16) {
+                    filtersRow
+                    if hasCountryTrend { trendCard }
+                    ForEach(filteredEntries) { entry in
+                        JournalCard(entry: entry, recipe: state.recipe(entry.recipeId))
                     }
                 }
-                Button(action: {}) {
-                    Label("Export to Markdown", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }.ccSecondary()
+                .frame(maxWidth: .infinity)
+
+                // RIGHT
+                VStack(spacing: 16) {
+                    monthSummaryCard
+                    ForEach(Array(state.insights.enumerated()), id: \.offset) { i, ins in
+                        SurfaceCard {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    CCIconView(icon: .sparkle, size: 14, color: Theme.accent)
+                                    Kicker("Insight \(i + 1)", color: Theme.accent)
+                                }
+                                Text(ins.headline)
+                                    .font(Typography.ui(13.5, weight: .medium))
+                                    .foregroundStyle(Theme.slate900)
+                                Text(ins.detail)
+                                    .font(Typography.ui(11.5))
+                                    .foregroundStyle(Theme.slate500)
+                            }
+                        }
+                    }
+                    Button {
+                        let md = RecipeExporter.markdown(
+                            forJournal: state.journal,
+                            recipeLookup: { state.recipe($0) },
+                            units: state.units
+                        )
+                        shareItems = [md]
+                    } label: {
+                        Label("Export to Markdown", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }.ccSecondary()
+                }
+                .frame(width: 360)
             }
-            .frame(width: 360)
+            .sheet(isPresented: Binding(
+                get: { shareItems != nil },
+                set: { if !$0 { shareItems = nil } }
+            )) {
+                if let items = shareItems {
+                    ShareActivitySheet(items: items)
+                }
+            }
         }
     }
 
@@ -115,30 +142,55 @@ struct JournalScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 Kicker("This month")
                 VStack(spacing: 12) {
-                    summaryRow("Bakes", "\(state.journal.count)", "+2 vs last month")
+                    summaryRow("Bakes", "\(state.journal.count)")
                     summaryRow("Avg rating",
-                                String(format: "%.1f", Analytics.avgRating(in: state.journal) ?? 0),
-                                "↑ 0.4")
+                                String(format: "%.1f", Analytics.avgRating(in: state.journal) ?? 0))
                     summaryRow("Avg kitchen temp",
-                                String(format: "%.1f°C", Analytics.avgKitchenC(in: state.journal) ?? 0),
-                                "1.2°C cooler")
-                    summaryRow("Flour used", "5.4kg", "King Arthur 70%")
+                                String(format: "%.1f°C", Analytics.avgKitchenC(in: state.journal) ?? 0))
                 }
                 .padding(.top, 12)
             }
         }
     }
 
-    private func summaryRow(_ label: String, _ value: String, _ sub: String) -> some View {
+    private func summaryRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label).font(Typography.ui(13)).foregroundStyle(Theme.slate700)
-                Text(sub).font(Typography.ui(11)).foregroundStyle(Theme.slate500)
-            }
+            Text(label).font(Typography.ui(13)).foregroundStyle(Theme.slate700)
             Spacer()
             Text(value)
                 .font(Typography.mono(18, weight: .semibold))
                 .foregroundStyle(Theme.slate900)
+        }
+    }
+}
+
+// MARK: - Empty state
+
+private struct EmptyJournalView: View {
+    let onScheduler: () -> Void
+    var body: some View {
+        SurfaceCard {
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle().fill(Theme.primaryTint).frame(width: 64, height: 64)
+                    CCIconView(icon: .graph, size: 24, color: Theme.primary)
+                }
+                VStack(spacing: 4) {
+                    Text("No bakes logged yet")
+                        .font(Typography.display(20, weight: .medium))
+                        .foregroundStyle(Theme.slate900)
+                    Text("Finish a bake and log it from the Active Bake screen — patterns, ratings, and insights will appear here.")
+                        .font(Typography.ui(13))
+                        .foregroundStyle(Theme.slate600)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                }
+                Button(action: onScheduler) {
+                    Label("Open Scheduler", systemImage: "clock")
+                }.ccPrimary()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
         }
     }
 }
@@ -208,12 +260,7 @@ private struct BulkTimeChart: View {
     let journal: [JournalEntry]
 
     var data: [(bulkMin: Int, rating: Int)] {
-        var arr: [(Int, Int)] = journal.filter { $0.recipeId == "country" }.map { ($0.bulkMinutes, $0.rating) }
-        // Synthetic priors to make the trend visible (same as the prototype)
-        arr.append(contentsOf: [(240, 2), (270, 3), (290, 3),
-                                (310, 4), (330, 4), (355, 5),
-                                (280, 3), (245, 2)])
-        return arr
+        journal.filter { $0.recipeId == "country" }.map { ($0.bulkMinutes, $0.rating) }
     }
 
     var body: some View {

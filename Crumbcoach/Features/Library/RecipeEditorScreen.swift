@@ -16,8 +16,15 @@ struct RecipeEditorScreen: View {
     @State private var sourceName: String
     @State private var showDeleteConfirm: Bool = false
     @State private var triedSave: Bool = false
+    @State private var photoPickerOpen: Bool = false
+    @State private var isImporting: Bool = false
+    @State private var importWarnings: [String] = []
+    @State private var importError: String? = nil
+    @State private var showOverwriteConfirm: Bool = false
 
-    init(state: AppState, editingRecipeId: String?) {
+    init(state: AppState,
+         editingRecipeId: String?,
+         initialSourceURL: String? = nil) {
         self.state = state
         self.editingRecipeId = editingRecipeId
         let initial = editingRecipeId.flatMap(state.recipe(_:)) ?? Self.blank()
@@ -26,7 +33,10 @@ struct RecipeEditorScreen: View {
             _sourceURL = State(initialValue: url)
             _sourceName = State(initialValue: name)
         } else {
-            _sourceURL = State(initialValue: "")
+            // Share-extension hand-off lands here. When the deep-link
+            // carries a URL we seed it as the source so the user only has
+            // to tap Import to populate the rest of the editor.
+            _sourceURL = State(initialValue: initialSourceURL ?? "")
             _sourceName = State(initialValue: "")
         }
     }
@@ -77,14 +87,20 @@ struct RecipeEditorScreen: View {
             ? "Title is required" : nil
     }
     private var flourError: String? {
-        draft.ingredients.contains { $0.category == .flour && $0.weightGrams > 0 }
-            ? nil : "Add at least one flour ingredient"
+        let mainFlour = draft.ingredients.contains { $0.category == .flour && $0.weightGrams > 0 }
+        let prefermentFlour = draft.preferments
+            .flatMap(\.ingredients)
+            .contains { $0.category == .flour && $0.weightGrams > 0 }
+        return (mainFlour || prefermentFlour)
+            ? nil
+            : "Add at least one flour ingredient"
     }
     private var stagesError: String? {
         draft.stages.isEmpty ? "Add at least one stage" : nil
     }
     private var weightsError: String? {
         let bad = draft.ingredients.contains { $0.weightGrams < 0 }
+            || draft.preferments.flatMap(\.ingredients).contains { $0.weightGrams < 0 }
             || draft.stages.contains { $0.durationMin < 0 }
         return bad ? "Weights and durations must be positive" : nil
     }
@@ -98,6 +114,7 @@ struct RecipeEditorScreen: View {
     var body: some View {
         NavigationStack {
             Form {
+                photoSection
                 metadataSection
                 if let msg = titleError, triedSave {
                     Section { Text(msg).font(.caption).foregroundStyle(Theme.warm700) }
@@ -106,6 +123,7 @@ struct RecipeEditorScreen: View {
                 if let msg = flourError, triedSave {
                     Section { Text(msg).font(.caption).foregroundStyle(Theme.warm700) }
                 }
+                prefermentsSection
                 stagesSection
                 if let msg = stagesError, triedSave {
                     Section { Text(msg).font(.caption).foregroundStyle(Theme.warm700) }
@@ -115,6 +133,13 @@ struct RecipeEditorScreen: View {
                 }
                 if editingRecipeId != nil {
                     deleteSection
+                }
+            }
+            .photoPicker(isPresented: $photoPickerOpen) { image in
+                if let filename = state.persistence.savePhoto(image) {
+                    draft.photo = filename
+                } else {
+                    state.photoErrorMessage = "Couldn't save that photo. Try again — your iPad may be low on storage."
                 }
             }
             .navigationTitle(editingRecipeId == nil ? "New recipe" : "Edit recipe")
@@ -143,9 +168,48 @@ struct RecipeEditorScreen: View {
         } message: {
             Text("This can't be undone.")
         }
+        .alert("Replace recipe with imported one?", isPresented: $showOverwriteConfirm) {
+            Button("Import", role: .destructive) {
+                Task { await runImport() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Title, ingredients, and stages will be replaced by what's in the source. Stage durations and percentages will need a once-over.")
+        }
     }
 
     // MARK: Sections
+
+    @ViewBuilder
+    private var photoSection: some View {
+        Section("Photo") {
+            HStack(alignment: .center, spacing: 14) {
+                BreadPhoto(assetName: draft.photo, kind: .crumb, height: 80)
+                    .frame(width: 110, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Theme.border1, lineWidth: 1)
+                    )
+                VStack(alignment: .leading, spacing: 6) {
+                    Button { photoPickerOpen = true } label: {
+                        Label(draft.photo == nil ? "Choose photo" : "Replace photo",
+                              systemImage: "camera")
+                    }
+                    if draft.photo != nil {
+                        Button(role: .destructive) { draft.photo = nil } label: {
+                            Label("Remove photo", systemImage: "trash")
+                        }
+                    }
+                    Text("Shown on the recipe card and the active-bake header. Bundled assets stay if you leave this blank.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 4)
+        }
+    }
 
     @ViewBuilder
     private var metadataSection: some View {
@@ -160,13 +224,157 @@ struct RecipeEditorScreen: View {
                 Text("Loaves: \(draft.loafCount)")
             }
             TextField("Time-to-bake summary (e.g. “8h”)", text: $draft.timeToBake)
+            Toggle("Twin scald (yudane + tangzhong)", isOn: $draft.twinScald)
             TextField("Source URL (optional)", text: $sourceURL)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             if !sourceURL.isEmpty {
                 TextField("Source name (e.g. “King Arthur”)", text: $sourceName)
+                HStack {
+                    Button {
+                        attemptImport()
+                    } label: {
+                        if isImporting {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Importing…")
+                            }
+                        } else {
+                            Label("Import recipe", systemImage: "square.and.arrow.down")
+                        }
+                    }
+                    .disabled(isImporting)
+                    Spacer()
+                }
+                if let err = importError {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(Theme.warm700)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !importWarnings.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Import notes")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(importWarnings, id: \.self) { msg in
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.warm)
+                                    .accessibilityHidden(true)
+                                Text(msg)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    /// Decide whether the user has typed enough into the editor to warrant a
+    /// confirmation before we overwrite. Empty title + no flour ingredient
+    /// is the "fresh import" signal — go straight to fetch. Anything else
+    /// asks first.
+    private var editorHasUserContent: Bool {
+        let hasTitle = !draft.title.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasFlour = draft.ingredients.contains {
+            $0.category == .flour && $0.weightGrams > 0
+                && !$0.name.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        // The blank() factory seeds a four-row sourdough skeleton, so we
+        // also treat that exact starting state as "no user content yet".
+        return hasTitle || (hasFlour && draft.ingredients.count > 4)
+    }
+
+    private func attemptImport() {
+        if editorHasUserContent {
+            showOverwriteConfirm = true
+        } else {
+            Task { await runImport() }
+        }
+    }
+
+    private func runImport() async {
+        importError = nil
+        importWarnings = []
+        guard let url = URL(string: sourceURL.trimmingCharacters(in: .whitespaces)),
+              url.scheme?.hasPrefix("http") == true else {
+            importError = RecipeImporterError.invalidURL.errorDescription
+            return
+        }
+        isImporting = true
+        defer { isImporting = false }
+        do {
+            let imported = try await RecipeImporter.import(from: url)
+            await MainActor.run {
+                applyImport(imported)
+            }
+        } catch let err as RecipeImporterError {
+            importError = err.errorDescription
+        } catch {
+            importError = error.localizedDescription
+        }
+    }
+
+    /// Replace the title / ingredients / stages / source from the imported
+    /// draft. Preserves the user's existing `editingRecipeId` (we're editing
+    /// the same record, not creating a new one), and re-routes the source-
+    /// URL field bindings so the editor surfaces the correct fields.
+    private func applyImport(_ imported: ImportedRecipe) {
+        var snap = draft
+        snap.title = imported.draft.title
+        snap.ingredients = imported.draft.ingredients
+        snap.preferments = imported.draft.preferments
+        snap.stages = imported.draft.stages
+        snap.totalDoughGrams = imported.draft.totalDoughGrams
+        snap.source = imported.draft.source
+        snap.twinScald = imported.draft.twinScald
+        draft = snap
+        if case .linked(_, let name, _) = imported.draft.source {
+            sourceName = name
+        }
+        importWarnings = imported.warnings
+    }
+
+    @ViewBuilder
+    private var prefermentsSection: some View {
+        Section {
+            ForEach($draft.preferments) { $pf in
+                PrefermentRow(preferment: $pf, units: state.units)
+            }
+            .onDelete { offsets in
+                let removedIds = offsets.map { draft.preferments[$0].id }
+                draft.preferments.remove(atOffsets: offsets)
+                // Clean up dangling stage references so a stage doesn't
+                // point at a preferment block that no longer exists.
+                for i in draft.stages.indices {
+                    if let ref = draft.stages[i].scaldRef, removedIds.contains(ref) {
+                        draft.stages[i].scaldRef = nil
+                    }
+                }
+            }
+            Menu {
+                ForEach(PrefermentTemplate.allCases, id: \.id) { tmpl in
+                    let exists = draft.preferments.contains { $0.id == tmpl.id }
+                    Button {
+                        draft.preferments.append(tmpl.makeDefault())
+                    } label: {
+                        Label(tmpl.displayName, systemImage: exists ? "checkmark" : "plus")
+                    }
+                    .disabled(exists)
+                }
+            } label: {
+                Label("Add preferment", systemImage: "plus.circle")
+            }
+        } header: {
+            Text("Preferments")
+        } footer: {
+            Text("Tangzhong / yudane scalds and levain builds. Sub-ingredients are tagged to their preferment so the main-dough flour % isn't double-counted.")
         }
     }
 
@@ -174,7 +382,7 @@ struct RecipeEditorScreen: View {
     private var ingredientsSection: some View {
         Section {
             ForEach($draft.ingredients) { $ing in
-                IngredientRow(ingredient: $ing)
+                IngredientRow(ingredient: $ing, units: state.units)
             }
             .onDelete { offsets in
                 draft.ingredients.remove(atOffsets: offsets)
@@ -187,7 +395,7 @@ struct RecipeEditorScreen: View {
                 Label("Add ingredient", systemImage: "plus.circle")
             }
         } header: {
-            Text("Ingredients")
+            Text("Ingredients (\(state.units.inputLabel.lowercased()))")
         } footer: {
             Text("Baker's % and total dough weight recompute automatically on save.")
         }
@@ -237,24 +445,68 @@ struct RecipeEditorScreen: View {
     private func save() {
         var snap = draft
         snap.title = snap.title.trimmingCharacters(in: .whitespaces)
-        // Drop blank-name ingredients the user added but never filled in.
+
+        // Drop blank-name rows the user added but never filled in, both at
+        // the main-dough level and inside every preferment. Keeps the
+        // editor forgiving without persisting empty placeholders.
         snap.ingredients = snap.ingredients.filter {
             !$0.name.trimmingCharacters(in: .whitespaces).isEmpty || $0.weightGrams > 0
         }
-        // Total dough weight is the sum of ingredient weights.
-        snap.totalDoughGrams = snap.ingredients.reduce(0) { $0 + $1.weightGrams }
-        // Re-derive per-ingredient baker's % from flour total.
-        let flour = snap.ingredients
-            .filter { $0.category == .flour }
-            .reduce(0.0) { $0 + $1.weightGrams }
-        if flour > 0 {
+        // Tag every main-dough ingredient with `section = "main"` so the
+        // recipe-detail table can split main vs. preferment cleanly. Seed
+        // recipes do this; user-created ones now match.
+        snap.ingredients = snap.ingredients.map { ing in
+            var i = ing
+            i.section = "main"
+            return i
+        }
+        snap.preferments = snap.preferments.map { pf in
+            var p = pf
+            p.ingredients = p.ingredients
+                .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty || $0.weightGrams > 0 }
+                .map { ing in
+                    var i = ing
+                    i.section = p.id
+                    return i
+                }
+            return p
+        }
+
+        // Combined flour total includes preferment flour, so baker's
+        // percentages stay honest with tangzhong/yudane/levain.
+        let combinedFlour =
+            snap.ingredients.filter { $0.category == .flour }.reduce(0.0) { $0 + $1.weightGrams }
+            + snap.preferments.flatMap(\.ingredients)
+                .filter { $0.category == .flour }
+                .reduce(0.0) { $0 + $1.weightGrams }
+
+        if combinedFlour > 0 {
             snap.ingredients = snap.ingredients.map { ing in
                 var i = ing
-                i.bakersPct = ing.weightGrams / flour * 100
+                i.bakersPct = ing.weightGrams / combinedFlour * 100
                 return i
             }
+            snap.preferments = snap.preferments.map { pf in
+                var p = pf
+                let prefermentFlour = p.ingredients
+                    .filter { $0.category == .flour }
+                    .reduce(0.0) { $0 + $1.weightGrams }
+                p.flourPct = (prefermentFlour / combinedFlour) * 100
+                p.ingredients = p.ingredients.map { ing in
+                    var i = ing
+                    i.bakersPct = ing.weightGrams / combinedFlour * 100
+                    return i
+                }
+                return p
+            }
         }
-        // And the recipe-level percentages from the ingredient totals.
+
+        // Total dough weight is the sum across main + every preferment.
+        snap.totalDoughGrams =
+            snap.ingredients.reduce(0) { $0 + $1.weightGrams }
+            + snap.preferments.flatMap(\.ingredients).reduce(0) { $0 + $1.weightGrams }
+
+        // Recipe-level percentages from the combined totals.
         let pct = BakersMath.computePercentages(for: snap)
         snap.hydrationPct = pct.hydrationPct
         snap.saltPct      = pct.saltPct
@@ -286,6 +538,38 @@ struct RecipeEditorScreen: View {
 
 private struct IngredientRow: View {
     @Binding var ingredient: Ingredient
+    let units: Units
+
+    /// Whole-number grams stay tidy in the editor; oz needs two decimals
+    /// to round-trip cleanly (1 g ≈ 0.04 oz — integer-only would lose
+    /// every value under ~28 g).
+    private var weightFormat: FloatingPointFormatStyle<Double> {
+        switch units {
+        case .grams:  return .number.precision(.fractionLength(0))
+        case .ounces: return .number.precision(.fractionLength(0...2))
+        }
+    }
+
+    /// Display-unit projection over the underlying grams field. Reads the
+    /// stored grams, converts to oz when needed, and writes the user's
+    /// edit back as grams. Keeps `ingredient.weightGrams` canonical so
+    /// baker's-percent math doesn't have to know about units.
+    private var displayWeight: Binding<Double> {
+        Binding(
+            get: {
+                switch units {
+                case .grams:  return ingredient.weightGrams
+                case .ounces: return ingredient.weightGrams / Units.gramsPerOunce
+                }
+            },
+            set: { newValue in
+                switch units {
+                case .grams:  ingredient.weightGrams = newValue
+                case .ounces: ingredient.weightGrams = newValue * Units.gramsPerOunce
+                }
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -299,11 +583,11 @@ private struct IngredientRow: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
                 Spacer()
-                TextField("0", value: $ingredient.weightGrams, format: .number)
+                TextField("0", value: displayWeight, format: weightFormat)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 80)
-                Text("g").foregroundStyle(.secondary)
+                Text(units.shortLabel).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 4)
@@ -365,6 +649,165 @@ private struct StageRow: View {
             .font(.callout)
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Preferments
+
+/// Fixed catalogue of preferment kinds the editor can add. Each carries a
+/// sensible default name / technique / flour-% so the user lands on a
+/// row that already makes sense; they can edit any field afterward.
+/// Custom preferments aren't exposed in v1 — the id field is referenced
+/// by `Stage.scaldRef` and `Ingredient.section`, so keeping ids fixed
+/// avoids the freeform-id maintenance burden.
+private enum PrefermentTemplate: CaseIterable {
+    case levain, yudane, tangzhong, biga, poolish
+
+    var id: String {
+        switch self {
+        case .levain:    return "levain"
+        case .yudane:    return "yudane"
+        case .tangzhong: return "tangzhong"
+        case .biga:      return "biga"
+        case .poolish:   return "poolish"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .levain:    return "Levain build"
+        case .yudane:    return "Yudane (scald)"
+        case .tangzhong: return "Tangzhong (cooked roux)"
+        case .biga:      return "Biga"
+        case .poolish:   return "Poolish"
+        }
+    }
+
+    func makeDefault() -> Preferment {
+        switch self {
+        case .levain:
+            return Preferment(
+                id: "levain", name: "Levain",
+                technique: "1:5:5 build to peak",
+                prep: "Feed your starter and let it peak at the kitchen temp before mix.",
+                flourPct: 20,
+                ingredients: [
+                    Ingredient(name: "Starter", category: .leaven, weightGrams: 30, bakersPct: 3, section: "levain"),
+                    Ingredient(name: "Bread flour", category: .flour, weightGrams: 150, bakersPct: 19, section: "levain"),
+                    Ingredient(name: "Water", category: .liquid, weightGrams: 150, bakersPct: 19, section: "levain"),
+                ]
+            )
+        case .yudane:
+            return Preferment(
+                id: "yudane", name: "Yudane",
+                technique: "1:1 scald · rest 12h",
+                prep: "Whisk flour + boiling water 1:1, cover, rest overnight.",
+                flourPct: 10,
+                ingredients: [
+                    Ingredient(name: "Bread flour", category: .flour, weightGrams: 80, bakersPct: 10, section: "yudane"),
+                    Ingredient(name: "Boiling water", category: .liquid, weightGrams: 80, bakersPct: 10, section: "yudane"),
+                ]
+            )
+        case .tangzhong:
+            return Preferment(
+                id: "tangzhong", name: "Tangzhong",
+                technique: "1:5 cook to 65°C",
+                prep: "Whisk flour + milk in a saucepan over medium heat to 65°C until pudding-thick. Cool.",
+                flourPct: 6,
+                ingredients: [
+                    Ingredient(name: "Bread flour", category: .flour, weightGrams: 48, bakersPct: 6, section: "tangzhong"),
+                    Ingredient(name: "Whole milk", category: .liquid, weightGrams: 240, bakersPct: 30, section: "tangzhong"),
+                ]
+            )
+        case .biga:
+            return Preferment(
+                id: "biga", name: "Biga",
+                technique: "55% hydration · rest 16h",
+                prep: "Mix flour + water + a pinch of yeast. Rest cool overnight.",
+                flourPct: 30,
+                ingredients: [
+                    Ingredient(name: "Bread flour", category: .flour, weightGrams: 240, bakersPct: 30, section: "biga"),
+                    Ingredient(name: "Water", category: .liquid, weightGrams: 132, bakersPct: 16.5, section: "biga"),
+                    Ingredient(name: "Instant yeast", category: .leaven, weightGrams: 1, bakersPct: 0.1, section: "biga"),
+                ]
+            )
+        case .poolish:
+            return Preferment(
+                id: "poolish", name: "Poolish",
+                technique: "100% hydration · rest 12h",
+                prep: "Mix flour + water 1:1 + a pinch of yeast. Rest cool overnight.",
+                flourPct: 25,
+                ingredients: [
+                    Ingredient(name: "Bread flour", category: .flour, weightGrams: 200, bakersPct: 25, section: "poolish"),
+                    Ingredient(name: "Water", category: .liquid, weightGrams: 200, bakersPct: 25, section: "poolish"),
+                    Ingredient(name: "Instant yeast", category: .leaven, weightGrams: 1, bakersPct: 0.1, section: "poolish"),
+                ]
+            )
+        }
+    }
+}
+
+/// Disclosure-group editor for one preferment block. Collapsed view shows the
+/// name + technique + flour %; expanded reveals prep notes and sub-ingredients.
+private struct PrefermentRow: View {
+    @Binding var preferment: Preferment
+    let units: Units
+    @State private var expanded: Bool = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Name", text: $preferment.name)
+                TextField("Technique (e.g. “1:5 cook to 65°C”)", text: $preferment.technique)
+                TextField("Prep notes", text: $preferment.prep, axis: .vertical)
+                    .lineLimit(2...4)
+                HStack {
+                    Text("Flour %")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    TextField("0", value: $preferment.flourPct, format: .number.precision(.fractionLength(0...1)))
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 70)
+                    Text("%").foregroundStyle(.secondary)
+                }
+                SoftDivider()
+                Text("Sub-ingredients")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach($preferment.ingredients) { $ing in
+                    IngredientRow(ingredient: $ing, units: units)
+                }
+                .onDelete { offsets in
+                    preferment.ingredients.remove(atOffsets: offsets)
+                }
+                Button {
+                    preferment.ingredients.append(
+                        Ingredient(name: "", category: .flour, weightGrams: 0, bakersPct: 0,
+                                    section: preferment.id)
+                    )
+                } label: {
+                    Label("Add sub-ingredient", systemImage: "plus.circle")
+                }
+                .font(.callout)
+            }
+            .padding(.vertical, 6)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(preferment.name.isEmpty ? "Untitled preferment" : preferment.name)
+                    .font(.body.weight(.medium))
+                HStack(spacing: 6) {
+                    Text(preferment.technique)
+                        .lineLimit(1)
+                    if preferment.flourPct > 0 {
+                        Text("·").foregroundStyle(.tertiary)
+                        Text("\(preferment.flourPct, format: .number.precision(.fractionLength(0...1)))% flour")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

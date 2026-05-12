@@ -90,13 +90,23 @@ final class PersistenceController {
     /// Encode the image as JPEG and write it to `photos/<uuid>.jpg`. Returns
     /// the relative filename to store in `BakePhoto.assetName` — callers
     /// resolve it back through `loadPhoto(named:)` or `photoURL(for:)`.
-    func savePhoto(_ image: UIImage, quality: CGFloat = 0.85) -> String {
+    ///
+    /// Returns `nil` if JPEG encoding or the disk write fails (rare —
+    /// exotic UIImage instances, or the app sandbox running out of space).
+    /// Callers should surface a user-visible error rather than persisting a
+    /// reference to a file that doesn't exist on disk.
+    func savePhoto(_ image: UIImage, quality: CGFloat = 0.85) -> String? {
+        guard let data = image.jpegData(compressionQuality: quality) else {
+            return nil
+        }
         let filename = "\(UUID().uuidString).jpg"
         let dest = photosDirectory.appendingPathComponent(filename)
-        if let data = image.jpegData(compressionQuality: quality) {
-            try? data.write(to: dest, options: [.atomic])
+        do {
+            try data.write(to: dest, options: [.atomic])
+            return filename
+        } catch {
+            return nil
         }
-        return filename
     }
 
     /// Resolve a stored photo filename back to a `UIImage`. Returns nil if

@@ -6,8 +6,8 @@ import SwiftUI
 struct StarterScreen: View {
     var state: AppState
     @State private var selectedId: String
-    @State private var range: String = "12h"
     @State private var photoPickerOpen = false
+    @State private var addStarterOpen = false
 
     init(state: AppState) {
         self.state = state
@@ -19,38 +19,50 @@ struct StarterScreen: View {
     var selected: Starter? { state.starter(selectedId) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // Switcher
-            HStack(spacing: 12) {
-                ForEach(state.starters) { st in
-                    StarterChip(starter: st, active: st.id == selectedId) { selectedId = st.id }
-                }
-                addStarterButton
-            }
-
-            if let s = selected {
-                HStack(alignment: .top, spacing: 18) {
-                    // Rise chart card
-                    riseCard(starter: s)
-                        .frame(maxWidth: .infinity)
-
-                    // Side stack
-                    VStack(spacing: 16) {
-                        aiCheckCard(starter: s)
-                        sidekickCard
-                        feedingLogCard(starter: s)
+        Group {
+            if state.starters.isEmpty {
+                EmptyStarterView { addStarterOpen = true }
+            } else {
+                VStack(alignment: .leading, spacing: 18) {
+                    // Switcher
+                    HStack(spacing: 12) {
+                        ForEach(state.starters) { st in
+                            StarterChip(starter: st, active: st.id == selectedId) { selectedId = st.id }
+                        }
+                        addStarterButton
                     }
-                    .frame(width: 360)
+
+                    if let s = selected {
+                        HStack(alignment: .top, spacing: 18) {
+                            // Rise chart card
+                            riseCard(starter: s)
+                                .frame(maxWidth: .infinity)
+
+                            // Side stack
+                            VStack(spacing: 16) {
+                                aiCheckCard(starter: s)
+                                sidekickCard
+                                feedingLogCard(starter: s)
+                            }
+                            .frame(width: 360)
+                        }
+                    }
                 }
             }
         }
         .photoPicker(isPresented: $photoPickerOpen) { image in
             state.setStarterPhoto(image, starterId: selectedId)
         }
+        .sheet(isPresented: $addStarterOpen) {
+            AddStarterSheet { name, flourType in
+                let id = state.addStarter(name: name, flourType: flourType)
+                selectedId = id
+            }
+        }
     }
 
     private var addStarterButton: some View {
-        Button(action: {}) {
+        Button(action: { addStarterOpen = true }) {
             HStack(spacing: 8) {
                 CCIconView(icon: .plus, size: 15, color: Theme.slate500)
                 Text("Add starter")
@@ -72,20 +84,13 @@ struct StarterScreen: View {
     private func riseCard(starter: Starter) -> some View {
         SurfaceCard(padding: EdgeInsets()) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Kicker("Rise activity · last 12 hours")
-                        Text("\(starter.name) peaked 2h ago")
-                            .font(Typography.display(20, weight: .medium))
-                            .foregroundStyle(Theme.slate900)
-                    }
-                    Spacer()
-                    HStack(spacing: 6) {
-                        ForEach(["12h", "3d", "30d"], id: \.self) { t in
-                            TagPill(label: t, active: t == range) { range = t }
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 4) {
+                    Kicker("Rise activity · last 12 hours")
+                    Text("\(starter.name) peaked 2h ago")
+                        .font(Typography.display(20, weight: .medium))
+                        .foregroundStyle(Theme.slate900)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 22)
                 .padding(.vertical, 18)
 
@@ -164,8 +169,18 @@ struct StarterScreen: View {
                     + Text(".").font(Typography.ui(13)).foregroundStyle(Theme.slate700)
 
                     HStack(spacing: 6) {
-                        Button("Feed now") { }.ccPrimary(compact: true).frame(maxWidth: .infinity)
-                        Button("Refrigerate") { }.ccSecondary(compact: true).frame(maxWidth: .infinity)
+                        Button("Feed now") {
+                            state.logStarterFeeding(starterId: starter.id)
+                        }
+                        .ccPrimary(compact: true)
+                        .frame(maxWidth: .infinity)
+
+                        Button(starter.storage == .fridge ? "Bring to counter" : "Refrigerate") {
+                            state.setStarterStorage(starterId: starter.id,
+                                                    storage: starter.storage == .fridge ? .counter : .fridge)
+                        }
+                        .ccSecondary(compact: true)
+                        .frame(maxWidth: .infinity)
                     }
                 }
                 .padding(16)
@@ -355,6 +370,104 @@ private struct BlurChipStarter: ButtonStyle {
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(Capsule().fill(Color.black.opacity(0.4)).blendMode(.multiply))
             .opacity(configuration.isPressed ? 0.85 : 1.0)
+    }
+}
+
+// MARK: - Empty state
+
+private struct EmptyStarterView: View {
+    let onAdd: () -> Void
+    var body: some View {
+        SurfaceCard {
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle().fill(Theme.primaryTint).frame(width: 64, height: 64)
+                    CCIconView(icon: .starter, size: 24, color: Theme.primary)
+                }
+                VStack(spacing: 4) {
+                    Text("No starters yet")
+                        .font(Typography.display(20, weight: .medium))
+                        .foregroundStyle(Theme.slate900)
+                    Text("Add your sourdough starter to log feedings, track peak times, and get bake-ready prompts.")
+                        .font(Typography.ui(13))
+                        .foregroundStyle(Theme.slate600)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                }
+                Button(action: onAdd) {
+                    Label("Add starter", systemImage: "plus")
+                }.ccPrimary()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 28)
+        }
+    }
+}
+
+// MARK: - Add starter sheet
+
+private struct AddStarterSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onSave: (String, String) -> Void
+
+    @State private var name: String = ""
+    @State private var flourType: String = "White wheat"
+
+    private let flourSuggestions = ["White wheat", "Whole wheat", "Whole rye",
+                                    "Spelt", "Einkorn", "Mixed"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Kicker("New starter")
+                Text("Name your starter")
+                    .font(Typography.display(22, weight: .medium))
+                    .foregroundStyle(Theme.slate900)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Name")
+                    .font(Typography.ui(12, weight: .medium))
+                    .foregroundStyle(Theme.slate700)
+                TextField("Ruby, Mort, Buddy…", text: $name)
+                    .font(Typography.ui(14))
+                    .padding(10)
+                    .background(Color.white,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Theme.border1, lineWidth: 1)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Flour")
+                    .font(Typography.ui(12, weight: .medium))
+                    .foregroundStyle(Theme.slate700)
+                FlowLayout(spacing: 8) {
+                    ForEach(flourSuggestions, id: \.self) { f in
+                        TagPill(label: f, active: f == flourType) { flourType = f }
+                    }
+                }
+            }
+
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .ccGhost(compact: true)
+                Spacer()
+                Button {
+                    onSave(name, flourType)
+                    dismiss()
+                } label: {
+                    Label("Add starter", systemImage: "plus")
+                }
+                .ccPrimary()
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(28)
+        .frame(width: 480)
+        .background(Theme.surface1)
     }
 }
 

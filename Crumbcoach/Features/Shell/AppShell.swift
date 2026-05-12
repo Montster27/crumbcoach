@@ -6,6 +6,7 @@ import SwiftUI
 struct AppShell: View {
     var state: AppState
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Sidebar width scales with Dynamic Type so Larger Text users don't get
     /// truncated nav labels.  Base 232, growing up to ~290 at .accessibility5.
@@ -55,7 +56,7 @@ struct AppShell: View {
                     .padding(.top, 24)
                     .padding(.bottom, 48)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top)))
                     .id(screenId)
                 }
                 .background(Theme.surface1)
@@ -63,6 +64,17 @@ struct AppShell: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Theme.surface1)
+        .onAppear { state.reduceMotion = reduceMotion }
+        .onChange(of: reduceMotion) { _, new in state.reduceMotion = new }
+        .alert(
+            "Couldn't save photo",
+            isPresented: Binding(
+                get: { state.photoErrorMessage != nil },
+                set: { if !$0 { state.clearPhotoError() } }
+            ),
+            actions: { Button("OK", role: .cancel) { state.clearPhotoError() } },
+            message: { Text(state.photoErrorMessage ?? "") }
+        )
     }
 
     private var screenId: String {
@@ -284,17 +296,6 @@ struct AppHeader: View {
                     .font(Typography.mono(12))
                     .foregroundStyle(Theme.slate500)
                 Rectangle().fill(Theme.border1).frame(width: 1, height: 20)
-                Button { } label: { CCIconView(icon: .search, size: 16, color: Theme.slate600) }
-                    .buttonStyle(IconChip())
-                ZStack(alignment: .topTrailing) {
-                    Button { } label: { CCIconView(icon: .bell, size: 16, color: Theme.slate600) }
-                        .buttonStyle(IconChip())
-                    Circle()
-                        .fill(Theme.primary)
-                        .frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(.white, lineWidth: 2))
-                        .offset(x: -6, y: 6)
-                }
                 AvatarBadge(initial: String(state.userName.prefix(1)))
             }
         }
@@ -307,19 +308,6 @@ struct AppHeader: View {
             Rectangle().fill(Theme.border1).frame(height: 1)
         }
         .onReceive(timer) { now = $0 }
-    }
-}
-
-private struct IconChip: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .frame(width: 36, height: 36)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Theme.border1, lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 

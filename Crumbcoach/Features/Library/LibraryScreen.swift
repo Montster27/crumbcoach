@@ -7,6 +7,9 @@ struct LibraryScreen: View {
     @State private var search: String = ""
     @State private var filter: String = "all"
     @State private var editorOpen: Bool = false
+    /// URL seed for the editor when the user lands here via a
+    /// `crumbcoach://import?url=…` deep link from the share extension.
+    @State private var editorImportSeed: String? = nil
 
     private let filters: [(String, String)] = [
         ("all",       "All"),
@@ -97,14 +100,30 @@ struct LibraryScreen: View {
                                 GridItem(.flexible(), spacing: 16),
                                 GridItem(.flexible(), spacing: 16)], spacing: 16) {
                 ForEach(filtered) { r in
-                    RecipeCard(recipe: r) { state.openRecipe(r.id) }
+                    RecipeCard(recipe: r, units: state.units) { state.openRecipe(r.id) }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(isPresented: $editorOpen) {
-            RecipeEditorScreen(state: state, editingRecipeId: nil)
+        .sheet(isPresented: $editorOpen, onDismiss: { editorImportSeed = nil }) {
+            RecipeEditorScreen(state: state,
+                                editingRecipeId: nil,
+                                initialSourceURL: editorImportSeed)
         }
+        .onAppear { openEditorIfPendingImport() }
+        .onChange(of: state.pendingImportURL) { _, _ in
+            openEditorIfPendingImport()
+        }
+    }
+
+    /// Drain `state.pendingImportURL` (set by the deep-link handler) and
+    /// present the editor with that URL seeded. Idempotent — the seed
+    /// clears via `onDismiss` so a second share doesn't reuse stale state.
+    private func openEditorIfPendingImport() {
+        guard let pending = state.pendingImportURL, !pending.isEmpty else { return }
+        editorImportSeed = pending
+        editorOpen = true
+        state.pendingImportURL = nil
     }
 
     private func statCount(_ n: Int, _ label: String) -> some View {
@@ -176,6 +195,7 @@ struct FlowLayout: Layout {
 
 struct RecipeCard: View {
     let recipe: Recipe
+    let units: Units
     let action: () -> Void
 
     var body: some View {
@@ -217,7 +237,8 @@ struct RecipeCard: View {
                     HStack(spacing: 14) {
                         statBlock("\(Int(recipe.hydrationPct))%", "hyd.")
                         statBlock(String(format: "%.1f%%", recipe.saltPct), "salt")
-                        statBlock("\(Int(recipe.totalDoughGrams))", "g · \(recipe.loafCount)")
+                        statBlock(CCFormat.weightValue(grams: recipe.totalDoughGrams, units: units),
+                                  "\(units.shortLabel) · \(recipe.loafCount)")
                     }
                     .padding(.top, 8)
                 }

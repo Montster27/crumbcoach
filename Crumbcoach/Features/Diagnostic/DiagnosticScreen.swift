@@ -38,9 +38,14 @@ struct DiagnosticScreen: View {
             .frame(width: 420)
         }
         .photoPicker(isPresented: $photoPickerOpen) { image in
-            let filename = state.persistence.savePhoto(image)
-            currentPhoto = filename
-            startAnalysis()
+            // Defer the analysis start until we have a real on-disk filename
+            // — if persistence fails the global photo-error alert covers it.
+            if let filename = state.persistence.savePhoto(image) {
+                currentPhoto = filename
+                startAnalysis()
+            } else {
+                state.photoErrorMessage = "Couldn't save that photo. Try again — your iPad may be low on storage."
+            }
         }
         .onAppear {
             // Consume a photo handed off from another screen (Home's "Take
@@ -113,6 +118,8 @@ struct DiagnosticScreen: View {
                         .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Take crumb photo")
+                .accessibilityHint("Opens the camera or photo library to start a diagnostic")
                 Text("Tap to analyze · or drop a photo")
                     .font(Typography.ui(14))
                     .foregroundStyle(.white.opacity(0.9))
@@ -200,7 +207,6 @@ struct DiagnosticScreen: View {
                         contextDatum("12h", "cold retard")
                     }
                     Spacer()
-                    Button("Edit context →") { }.ccGhost(compact: true)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 14)
@@ -363,14 +369,11 @@ struct DiagnosticScreen: View {
                         Kicker("Next time", color: Theme.primary)
                         Text("Either bulk 45 min longer, or warm kitchen to 24°C and hold bulk at ~4h 30m. Aim for 50% volume rise, not 30%.")
                             .font(Typography.ui(13.5)).foregroundStyle(Theme.slate700)
-                        HStack(spacing: 8) {
-                            Button(action: { state.goTo(.scheduler) }) {
-                                Text("Adjust next bake schedule")
-                                    .frame(maxWidth: .infinity)
-                            }.ccPrimary()
-                            Button(action: {}) { Image(systemName: "square.and.arrow.up") }
-                                .ccSecondary()
+                        Button(action: { state.goTo(.scheduler) }) {
+                            Text("Adjust next bake schedule")
+                                .frame(maxWidth: .infinity)
                         }
+                        .ccPrimary()
                         .padding(.top, 6)
                     }
                     .padding(.horizontal, 22)
@@ -489,6 +492,7 @@ private struct AnnotationOverlay: View {
             }
         }
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -511,6 +515,18 @@ private struct FeedbackButton: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+
+    /// Single-word label derived from the icon — there's no surrounding text
+    /// per button, so the icon's meaning is the label.
+    private var accessibilityLabel: String {
+        switch icon {
+        case .thumbsUp:   return "Useful"
+        case .thumbsDown: return "Not useful"
+        default:          return "Feedback"
+        }
     }
 }
 

@@ -13,6 +13,7 @@ struct RecipeDetailScreen: View {
     @State private var hydration: Double = 75
     @State private var conversion: ConversionMode = .direct
     @State private var editorOpen: Bool = false
+    @State private var shareItems: [Any]? = nil
 
     enum ConversionMode: String, CaseIterable, Identifiable {
         case direct, tangzhong, yudane
@@ -36,6 +37,14 @@ struct RecipeDetailScreen: View {
                 .onChange(of: recipeId) { _, _ in initSliders(from: recipe) }
                 .sheet(isPresented: $editorOpen) {
                     RecipeEditorScreen(state: state, editingRecipeId: recipeId)
+                }
+                .sheet(isPresented: Binding(
+                    get: { shareItems != nil },
+                    set: { if !$0 { shareItems = nil } }
+                )) {
+                    if let items = shareItems {
+                        ShareActivitySheet(items: items)
+                    }
                 }
         } else {
             Text("Recipe not found")
@@ -137,6 +146,13 @@ struct RecipeDetailScreen: View {
                             Label("Open original", systemImage: "link")
                         }.ccSecondary()
                     }
+                    Button {
+                        let md = RecipeExporter.markdown(for: recipe, units: state.units)
+                        let link = RecipeExporter.deepLink(for: recipe)
+                        shareItems = [md, link]
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }.ccSecondary()
                     Button { editorOpen = true } label: {
                         Label("Edit", systemImage: "pencil")
                     }.ccSecondary()
@@ -161,7 +177,7 @@ struct RecipeDetailScreen: View {
                 Rectangle().fill(Theme.border1).frame(width: 1, height: 60)
                 heroNumber("Leavening", String(format: "%.1f%%", percentages.leavenPct))
                 Rectangle().fill(Theme.border1).frame(width: 1, height: 60)
-                heroNumber("Dough wt", "\(Int(percentages.totalDoughGrams))g")
+                heroNumber("Dough wt", CCFormat.weight(grams: percentages.totalDoughGrams, units: state.units))
                 Rectangle().fill(Theme.border1).frame(width: 1, height: 60)
                 heroNumber("Loaves", "\(max(1, Int(round(Double(recipe.loafCount) * scale))))")
             }
@@ -328,7 +344,7 @@ struct RecipeDetailScreen: View {
             Text(String(format: "%.1f", ing.bakersPct))
                 .font(Typography.mono(13)).foregroundStyle(Theme.slate700)
                 .frame(width: 80, alignment: .trailing)
-            Text("\(Int(ing.weightGrams))g")
+            Text(CCFormat.weight(grams: ing.weightGrams, units: state.units))
                 .font(Typography.mono(13, weight: .semibold)).foregroundStyle(Theme.slate900)
                 .frame(width: 80, alignment: .trailing)
             HStack { Spacer()
@@ -399,7 +415,7 @@ struct RecipeDetailScreen: View {
             HStack {
                 Text("Total dough weight").font(Typography.ui(12)).foregroundStyle(Theme.slate600)
                 Spacer()
-                Text("\(Int(recipe.totalDoughGrams * scale))g")
+                Text(CCFormat.weight(grams: recipe.totalDoughGrams * scale, units: state.units))
                     .font(Typography.mono(12, weight: .semibold))
                     .foregroundStyle(Theme.slate900)
             }

@@ -102,7 +102,7 @@ struct ActiveBakeScreen: View {
                 VStack(spacing: 12) {
                     HStack(spacing: 12) {
                         statBlock("Hydration", "\(Int(recipe.hydrationPct))%")
-                        statBlock("Total weight", "\(Int(recipe.totalDoughGrams))g")
+                        statBlock("Total weight", CCFormat.weight(grams: recipe.totalDoughGrams, units: state.units))
                     }
                     HStack(spacing: 12) {
                         statBlock("Kitchen", "\(Int(bake.kitchenTempC))°C")
@@ -199,6 +199,13 @@ struct ActiveBakeScreen: View {
                                 Text(note).font(Typography.ui(13)).foregroundStyle(Theme.slate700)
                             }
                         }
+                        // Micro-fade when the stage swaps so the title doesn't
+                        // pop between stages. Honors reduce-motion via the
+                        // shell's environment value.
+                        .id(bake.currentStageIndex)
+                        .transition(.opacity)
+                        .animation(state.reduceMotion ? nil : .easeInOut(duration: 0.18),
+                                    value: bake.currentStageIndex)
                         Spacer()
                         RingProgress(value: Double(bake.foldsDone) / Double(bake.totalFolds),
                                       size: 84, stroke: 6) {
@@ -209,11 +216,16 @@ struct ActiveBakeScreen: View {
                                 Text("folds").font(Typography.ui(10)).foregroundStyle(Theme.slate500)
                             }
                         }
+                        .animation(state.reduceMotion ? nil : .easeOut(duration: 0.25),
+                                    value: bake.foldsDone)
                     }
                     HStack(spacing: 8) {
                         ForEach(0..<bake.totalFolds, id: \.self) { i in
                             FoldChip(index: i + 1, done: i < bake.foldsDone, current: i == bake.foldsDone)
                                 .onTapGesture { state.markFold(i + 1) }
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityLabel("Fold \(i + 1) of \(bake.totalFolds)")
+                                .accessibilityValue(i < bake.foldsDone ? "Done" : (i == bake.foldsDone ? "Up next" : "Pending"))
                         }
                     }
                     .padding(.top, 18)
@@ -240,10 +252,6 @@ struct ActiveBakeScreen: View {
                               systemImage: "thermometer")
                     }
                     .buttonStyle(CCButtonStyle(variant: proofOvenActive ? .primary : .secondary))
-
-                    Button { } label: {
-                        Label("Running late", systemImage: "clock")
-                    }.ccSecondary()
 
                     Spacer()
                     Button("Skip stage") { state.skipStage() }
@@ -320,7 +328,6 @@ struct ActiveBakeScreen: View {
                 Text("Schedule reflowed: next fold in 9m (was 14m), bake out 5:47 AM (was 7:38 AM).")
                     .font(Typography.ui(12)).foregroundStyle(Theme.slate700)
                 Spacer()
-                Button("Undo →") { }.ccGhost(compact: true)
             }
             .padding(8)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -339,20 +346,23 @@ struct ActiveBakeScreen: View {
         let totalPhotos = bake.stagePhotos.values.reduce(0) { $0 + $1.count }
         return SurfaceCard(padding: EdgeInsets()) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Kicker("Timeline")
+                VStack(alignment: .leading, spacing: 2) {
+                    Kicker("Timeline")
+                    if totalPhotos == 0 {
+                        Text("\(CCFormat.endToEndHours(recipe.stages.reduce(0) { $0 + $1.durationMin })) · tap the camera in each stage to log a photo")
+                            .font(Typography.ui(11))
+                            .foregroundStyle(Theme.slate500)
+                    } else {
                         Text("\(CCFormat.endToEndHours(recipe.stages.reduce(0) { $0 + $1.durationMin })) · ")
                             .font(Typography.ui(11)).foregroundStyle(Theme.slate500)
                         + Text("\(totalPhotos)")
                             .font(Typography.mono(11, weight: .semibold))
                             .foregroundStyle(Theme.slate700)
-                        + Text(" photos this bake")
+                        + Text(totalPhotos == 1 ? " photo this bake" : " photos this bake")
                             .font(Typography.ui(11)).foregroundStyle(Theme.slate500)
                     }
-                    Spacer()
-                    Button("View grid →") { }.ccGhost(compact: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 22)
                 .padding(.vertical, 14)
 
@@ -455,6 +465,7 @@ struct ActiveBakeScreen: View {
                                                          color: isActive ? Theme.primary : Theme.slate400))
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Add photo to \(stage.kind.rawValue)")
                         }
                     }
                     .padding(.top, 8)
@@ -624,10 +635,16 @@ private struct CompleteBakeSheet: View {
                             Image(systemName: i <= rating ? "star.fill" : "star")
                                 .font(.system(size: 26, weight: .regular))
                                 .foregroundStyle(i <= rating ? Theme.warm : Theme.slate300)
+                                .accessibilityHidden(true)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("\(i) star\(i == 1 ? "" : "s")")
+                        .accessibilityAddTraits(i == rating ? [.isSelected] : [])
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Rating")
+                .accessibilityValue("\(rating) of 5 stars")
             }
 
             VStack(alignment: .leading, spacing: 6) {

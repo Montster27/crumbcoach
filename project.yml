@@ -27,6 +27,11 @@ targets:
       - path: Crumbcoach
     resources:
       - path: Crumbcoach/Resources/Assets.xcassets
+    dependencies:
+      - target: CrumbcoachWidgets
+        embed: true
+      - target: CrumbcoachShareExtension
+        embed: true
     info:
       path: Crumbcoach/Info.plist
       properties:
@@ -51,12 +56,85 @@ targets:
         NSCameraUsageDescription: "Photograph your crumb, dough, and starter so CrumbCoach can analyze and log them."
         NSPhotoLibraryUsageDescription: "Attach photos from your library to bakes and diagnostics."
         NSUserNotificationsUsageDescription: "Remind you when each bake step is due — folds, shaping, baking."
+        # Stage 16 — required for `Activity<>.request()` to succeed.
+        NSSupportsLiveActivities: true
+        # Stage 18 — `crumbcoach://` URL scheme for deep-link sharing and
+        # the share-extension hand-off.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.crumbcoach.app
+            CFBundleURLSchemes:
+              - crumbcoach
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.crumbcoach.app
         TARGETED_DEVICE_FAMILY: "2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: Crumbcoach/Crumbcoach.entitlements
+    # Stage 15 — iCloud Drive sync via the ubiquity Documents container.
+    # The signing team must enable iCloud (Documents) on the App ID in
+    # Apple Developer + provision the container `iCloud.com.crumbcoach.app`
+    # for builds to sign. CloudSyncManager gracefully no-ops at runtime if
+    # the container isn't reachable (no team / not signed in).
+    entitlements:
+      path: Crumbcoach/Crumbcoach.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.crumbcoach.app
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.crumbcoach.app
+  CrumbcoachWidgets:
+    # Stage 16 — Live Activity widget extension. Renders the lock-screen +
+    # Dynamic Island UI for an in-progress bake. The ActiveBakeAttributes
+    # type is shared with the main app so the contract stays single-source.
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: CrumbcoachWidgets
+      - path: Crumbcoach/Shared/ActiveBakeAttributes.swift
+    info:
+      path: CrumbcoachWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: CrumbCoach Widgets
+        CFBundleShortVersionString: "0.1.0"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crumbcoach.app.widgets
+        TARGETED_DEVICE_FAMILY: "2"
+        SKIP_INSTALL: YES
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: NO
+  CrumbcoachShareExtension:
+    # Stage 18 — Safari share → CrumbCoach. Reads the shared URL, encodes
+    # it as `crumbcoach://import?url=…`, and opens the main app via the
+    # responder-chain `openURL:` hand-off. No persistent UI.
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: CrumbcoachShareExtension
+    info:
+      path: CrumbcoachShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: CrumbCoach
+        CFBundleShortVersionString: "0.1.0"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crumbcoach.app.share
+        TARGETED_DEVICE_FAMILY: "2"
+        SKIP_INSTALL: YES
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: NO
   CrumbcoachTests:
     type: bundle.unit-test
     platform: iOS

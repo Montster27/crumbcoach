@@ -21,7 +21,13 @@ struct HomeScreen: View {
                 DiagnosePromptCard(state: state, photoPickerOpen: $photoPickerOpen)
             }
 
-            InsightsStrip(state: state)
+            // Patterns only make sense once the user has actually baked. The
+            // strip stays hidden until the journal has something to summarize
+            // — otherwise the synthetic placeholders make the home feel
+            // generic rather than personal.
+            if !state.insights.isEmpty {
+                InsightsStrip(state: state)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .photoPicker(isPresented: $photoPickerOpen) { image in
@@ -193,7 +199,31 @@ private struct StarterCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.border1, lineWidth: 1))
                 .shadow(color: Theme.shadowCard, radius: 1, y: 1)
             } else {
-                EmptyView()
+                VStack(alignment: .leading, spacing: 0) {
+                    Kicker("Starter")
+                    Text("No starter yet")
+                        .font(Typography.display(20, weight: .medium))
+                        .foregroundStyle(Theme.slate900)
+                        .padding(.top, 4)
+                    Text("Add your sourdough starter to track feedings, peak times, and bake-readiness.")
+                        .font(Typography.ui(13))
+                        .foregroundStyle(Theme.slate600)
+                        .multilineTextAlignment(.leading)
+                        .padding(.top, 8)
+                    Spacer(minLength: 12)
+                    HStack(spacing: 6) {
+                        Text("Add a starter →")
+                            .font(Typography.ui(12, weight: .medium))
+                            .foregroundStyle(Theme.primary)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Theme.border1, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                )
             }
         }
         .buttonStyle(.plain)
@@ -294,7 +324,7 @@ private struct InsightsStrip: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Kicker("Patterns this week")
-                    Text("What your last 6 bakes are telling us")
+                    Text("What your last \(min(6, state.journal.count)) bakes are telling us")
                         .font(Typography.display(18, weight: .medium))
                         .foregroundStyle(Theme.slate900)
                 }

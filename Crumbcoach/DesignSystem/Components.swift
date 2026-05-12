@@ -212,7 +212,10 @@ struct TagPill: View {
     var active: Bool = false
     var action: () -> Void = {}
     var body: some View {
-        Button(action: action) {
+        Button(action: {
+            Haptics.select()
+            action()
+        }) {
             Text(label)
                 .font(Typography.ui(12, weight: .medium))
                 .foregroundStyle(active ? Color.white : Theme.slate700)
@@ -411,10 +414,21 @@ struct CCIconView: View {
     let icon: CCIcon
     var size: CGFloat = 16
     var color: Color = .primary
+    /// VoiceOver label. Defaults to `nil`, in which case the icon is hidden
+    /// from accessibility — almost every icon in the app is decorative and
+    /// paired with sibling text that's the real label. Pass a non-nil value
+    /// only for icon-only contexts where the symbol itself is the meaning.
+    var accessibilityLabel: String? = nil
+
     var body: some View {
-        Image(systemName: icon.rawValue)
+        let img = Image(systemName: icon.rawValue)
             .font(.system(size: size, weight: .medium))
             .foregroundStyle(color)
+        if let label = accessibilityLabel {
+            img.accessibilityLabel(label)
+        } else {
+            img.accessibilityHidden(true)
+        }
     }
 }
 

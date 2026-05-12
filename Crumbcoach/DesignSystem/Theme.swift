@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // CrumbCoach design tokens — ported from tokens.css + app.css
 // Warm-neutral palette with terracotta primary, generous whitespace.
@@ -96,21 +97,32 @@ enum Typography {
     private static let uiAvailable: Bool      = UIFont(name: uiName, size: 16) != nil
     private static let monoAvailable: Bool    = UIFont(name: monoName, size: 16) != nil
 
+    /// Every face anchors to `.body` so Dynamic Type scales custom + system
+    /// paths identically. SwiftUI's `Font.custom(_:size:)` is documented as
+    /// scaling with body by default, but being explicit also covers the
+    /// system-fallback branch (which would otherwise stay fixed).
     static func display(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
         displayAvailable
-            ? Font.custom(displayName, size: size).weight(weight)
-            : Font.system(size: size, weight: weight, design: .serif)
+            ? Font.custom(displayName, size: size, relativeTo: .body).weight(weight)
+            : Font.system(size: scaled(size), weight: weight, design: .serif)
     }
 
     static func ui(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         uiAvailable
-            ? Font.custom(uiName, size: size).weight(weight)
-            : Font.system(size: size, weight: weight, design: .default)
+            ? Font.custom(uiName, size: size, relativeTo: .body).weight(weight)
+            : Font.system(size: scaled(size), weight: weight, design: .default)
     }
 
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         monoAvailable
-            ? Font.custom(monoName, size: size).weight(weight)
-            : Font.system(size: size, weight: weight, design: .monospaced)
+            ? Font.custom(monoName, size: size, relativeTo: .body).weight(weight)
+            : Font.system(size: scaled(size), weight: weight, design: .monospaced)
+    }
+
+    /// `UIFontMetrics`-scaled point size for the system-fallback path so
+    /// numerals and labels grow with Larger Text. Custom-font path uses
+    /// `relativeTo:`, which is the SwiftUI equivalent.
+    private static func scaled(_ size: CGFloat) -> CGFloat {
+        UIFontMetrics(forTextStyle: .body).scaledValue(for: size)
     }
 }

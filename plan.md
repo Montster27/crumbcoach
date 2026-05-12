@@ -727,19 +727,669 @@ Known gaps:
 
 ---
 
-## Tier 2 stages (do after Tier 1 ships)
+## Phase A — Pre-1.0 ship-readiness (blocking for App Store)
 
-### Stage 6 — iCloud sync
+These six are what makes the difference between "TestFlight prototype"
+and "App Store 1.0". Every item is reachable from the current shell;
+none introduces new architecture. Reviewers and users will notice each
+gap.
 
-Replace `PersistenceController`'s file-based store with
-`NSPersistentCloudKitContainer` or migrate to SwiftData with CloudKit.
-Spec §11.
+### Stage 6 — Stub-button cleanup
+
+Audit every visible button in the app and either wire it or remove it.
+Today's empty-closure offenders, by screen:
+
+- **ActiveBake**: "Running late", timeline "View grid →", proof-oven "Undo →".
+- **Diagnostic**: "Edit context →", share button (`square.and.arrow.up`).
+- **Starter**: "Add starter", "Feed now", "Refrigerate", date-range chips.
+- **Journal**: "Export to Markdown" (will be wired in Stage 16).
+- **Header chrome**: search icon, notification bell.
+
+For each: decide whether the action ships in v1.0 or gets pulled.
+Anything not shipping should be removed visually — empty buttons leave
+users wondering what they're missing.
+
+### Stage 6 — completion notes
+
+Ship vs. pull decisions:
+
+- **Wired (ship v1):** Starter screen's Add starter / Feed now /
+  Refrigerate — these are core starter management. Date-range chips
+  on the rise chart were pulled (no multi-day data behind them).
+- **Pulled (out of v1):** ActiveBake "Running late" / "View grid →" /
+  proof-oven "Undo →"; Diagnostic "Edit context →" + share button;
+  Journal "Export to Markdown"; header search + notification bell.
+  Pulled means deleted from the UI, not visually hidden — empty
+  closures masquerading as features will not ship.
+
+Source of truth for the wired actions:
+
+- `AppState.addStarter(name:flourType:hydrationPct:) -> String` — appends
+  a fresh `Starter` (UUID id, default counter / 100% hydration, empty
+  feedings, flat rise history) and returns its id so the calling screen
+  can switch to it.
+- `AppState.logStarterFeeding(starterId:ratio:)` — inserts a feeding
+  entry at index 0 with `when = "Today \(clockTime)"`, fills ambient
+  temperature from `kitchenTempC` (or 4 °C if in the fridge), and resets
+  the display state to `"Just fed"` / `stateKind == .good`.
+- `AppState.setStarterStorage(starterId:storage:)` — flips storage and
+  rewrites the visible state pill + next-feed label so the user sees the
+  change. Counter↔Fridge↔Vacation are all covered.
+
+UI changes worth flagging for later stages:
+
+- The Starter rise chart still shows a 12-hour static history regardless
+  of the starter's recent feedings — Stage 20's HomeKit / Sidekick path
+  is the real fix. The kicker still hardcodes "last 12 hours" because
+  that's the only window the data supports today.
+- "Feed now" doesn't yet predict a new peak time — `peakAt` resets to
+  `—` and `nextFeed` to `"In 4–6h"`. Once we have live sensor data
+  (Stage 20 / Stage 25), the prediction can replace these strings.
+- The "Refrigerate" button now toggles between "Refrigerate" and
+  "Bring to counter" based on `starter.storage`, so the action label
+  always reflects what tapping it will do.
+- The starter AI-check card still contains the hardcoded "State: post-
+  peak. Surface flattening, large open bubbles…" copy. That's a Stage 7
+  empty-state concern, not a Stage 6 stub.
+
+### Stage 7 — Empty & error states
+
+The screens look broken when they have no data:
+
+- **Journal** with 0 entries renders the synthetic bulk-time chart
+  ("What your last 6 bakes are telling us") with no actual bakes —
+  confusing and dishonest.
+- **Starter** with 0 starters renders an empty switcher row and no
+  detail panel.
+- **Home** insights strip renders an empty grid when there are no
+  insights to surface.
+- **No-photo** state in journal entries and active-bake timelines
+  shows a placeholder camera icon — fine, but the "0 photos this
+  bake" copy could be friendlier.
+
+Also: surface user-visible errors for the failure paths we silently
+swallow today — `persistence.savePhoto` failures, `center.add`
+permission rejections, JSON-LD import errors.
+
+### Stage 7 — completion notes
+
+Empty states landed across the three screens called out in the plan:
+
+- `JournalScreen` now branches at the top of `body`: if
+  `state.journal.isEmpty`, the screen renders just `EmptyJournalView`
+  (icon + copy + "Open Scheduler" CTA). With data it renders the normal
+  left/right layout, but the bulk-time-vs-rating trend card is gated on
+  `state.journal.filter { $0.recipeId == "country" }.count >= 3` —
+  the chart was hardcoded to Country Sourdough and looked dishonest with
+  fewer than three real bakes.
+- `BulkTimeChart` no longer appends 8 synthetic priors; it plots only
+  real journal points. With < 3 country bakes the chart never renders.
+- `JournalScreen.monthSummaryCard` lost the fake subtitles
+  ("+2 vs last month", "↑ 0.4", "1.2°C cooler", "King Arthur 70%") and
+  the entirely-fake "Flour used 5.4 kg" row. Values are now the real
+  count / average rating / average kitchen °C with no commentary.
+- `HomeScreen.InsightsStrip` is wrapped in `if !state.insights.isEmpty`
+  — the whole card disappears when there's no journal to summarize. The
+  "last 6 bakes" headline now reads "last \(min(6, journal.count)) bakes"
+  so the number stays honest during the 1-5 entry ramp-up.
+- `HomeScreen.StarterCard`'s `EmptyView` branch is gone; with no
+  starters it shows a dashed-border CTA card ("Add a starter →") that
+  still routes to the Starter screen on tap.
+- `StarterScreen` body now branches on `state.starters.isEmpty`: empty
+  → `EmptyStarterView` with "Add starter" primary CTA that opens the
+  same `AddStarterSheet` Stage 6 added; non-empty → the normal
+  switcher + detail layout. No more orphan addStarterButton sitting
+  beside an empty switcher row.
+- `ActiveBakeScreen` timeline header copy adapts to photo count:
+  0 → "tap the camera in each stage to log a photo"; 1 → "1 photo this
+  bake"; N → "N photos this bake".
+
+`Analytics.generateInsights` was the upstream culprit feeding the
+ghost insights tile: it always tacked on a hardcoded flour-stub
+insight ("Switching to King Arthur bread flour shortened your bulk by
+~20 min."). The function now early-returns `[]` for an empty journal
+and the flour-stub is gone — that placeholder reappears as a real
+insight once we track ingredient brands.
+
+Photo error path:
+
+- `PersistenceController.savePhoto(_:quality:) -> String?` now returns
+  nil if JPEG encoding fails or the disk write throws — previously both
+  paths were silently swallowed with `try?` and we handed back a
+  filename pointing at a file that didn't exist.
+- `AppState` propagates the optional through `addPhoto`,
+  `setStarterPhoto`, and `queueDiagnosticPhoto`. On nil, the helper
+  sets `photoErrorMessage` and returns nil without mutating any state.
+- New `AppState.photoErrorMessage: String?` (not persisted) +
+  `clearPhotoError()`. `AppShell.body` attaches a global
+  `.alert("Couldn't save photo", …)` bound to this field so the
+  message surfaces from whichever screen tried to save.
+- `DiagnosticScreen` is the only direct caller of
+  `persistence.savePhoto` (it needs the filename synchronously to feed
+  the analyzer); it now checks the optional and sets the same
+  `photoErrorMessage` on failure.
+
+Notification `center.add` failures are intentionally left silent — the
+authorized path is the only place this gets reached, and the worst case
+is one missed reminder. The denied path was already surfaced by Stage
+2's `NotificationsDeniedBanner`. JSON-LD import errors aren't yet
+relevant because import doesn't exist (Stage 17).
+
+Known gaps:
+
+- The Starter AI-check card still hardcodes "State: post-peak. Surface
+  flattening, large open bubbles. Use now…" regardless of the
+  starter's actual storage / state. Replacing that copy with a real
+  derivation from `Starter.stateKind` is polish for Stage 14, not
+  Stage 7.
+- The Home `UpNextCard` still references "Country Sourdough at 10 AM
+  Sun" even when the user has no such recipe. Real personalization
+  belongs to Stage 12+ (multi-page onboarding) or whenever we add a
+  "favorite recipe" notion.
+- Photo error copy is one fixed string — once Stage 9 wires up crash
+  reporting we can differentiate JPEG-encode vs. disk-full and tell
+  the user which one to act on.
+
+### Stage 8 — Notification rescheduling on advance / skip
+
+Stage 3 known gap. `NotificationManager.scheduleBakeReminders` runs
+once at `startBake` time; if the user skips a fold or runs late, the
+old fold pings still fire on their original cadence.
+
+Fix:
+- Persist the active `Schedule` alongside the `ActiveBake` (currently
+  derived ephemerally in `SchedulerScreen.schedule`).
+- On every `AppState.advanceStage` / `skipStage`, recompute the
+  schedule from the *current* stage start and call
+  `NotificationManager.scheduleBakeReminders` again. The synchronous
+  cancel-by-id path makes this safe to call repeatedly.
+
+### Stage 8 — completion notes
+
+- `ActiveBake.schedule: Schedule? = nil` — the confirmed schedule now
+  rides on the bake itself (was ephemeral on `SchedulerScreen`).
+  Optional + default so pre-Stage-8 persisted bakes still decode;
+  those bakes simply skip the rebalance path. New bakes set
+  `bake.schedule = schedule` at `startBake` time, and the schedule is
+  re-saved on every state transition.
+- `AppState.moveStage` (the shared body for `advanceStage` /
+  `skipStage`) now rebalances `bake.schedule` against wall-clock
+  `now` via `Scheduler.rebalance`:
+  - The outgoing schedule step's `end` becomes `now`, its `start`
+    stays put so the journal can later report real elapsed time, and
+    its `status` is flipped to match the history entry (`.done` or
+    `.skipped`) so the schedule and history don't drift apart.
+  - Subsequent stages re-stack from `now`, re-applying Q10 against
+    `bake.kitchenTempC`. `bake.bakeOutAt` is updated to the new
+    schedule end-time so the recipe header card and Live Activity
+    preview reflect the slip.
+  - `NotificationManager.scheduleBakeReminders(for:recipe:)` is then
+    called fresh — its synchronous cancel-and-replace path replaces
+    every pending `bake-*` request, so leftover fold/shape/retard
+    pings from the previous cadence can never fire on the old times.
+  - When the move flips `bake.isComplete` (the user advanced/skipped
+    past the last stage), we call `cancelAllBakeReminders` instead so
+    no zombie reminders linger between the user wrapping up and the
+    journal-entry sheet appearing.
+- "Running late" stayed pulled in Stage 6 — there's no explicit "I'm
+  behind" button, but the rebalance covers the de-facto late case
+  automatically: when the user finally advances after lingering on a
+  stage, every subsequent reminder reanchors from that moment. A
+  future stage can re-introduce the explicit button by calling the
+  same path with a user-supplied delta.
+
+Known gaps deliberately left for later:
+
+- The Active Bake screen still shows the bake's *original* recipe
+  stage durations in the timeline rail rather than the rebalanced
+  schedule. Surfacing the live schedule durations is a cosmetic
+  refactor for Stage 14 polish.
+- `Scheduler.rebalance` uses `historyPct: 0` in this path — we don't
+  yet feed user-history adjustments into mid-bake reflows. Stage 24
+  (on-device AI) is the more interesting place to add that signal.
+- Demo bakes (`AppState.makeSampleActiveBake`) have `schedule == nil`
+  on purpose — their reminders aren't scheduled by `startBake`, so
+  there's nothing to reschedule.
+
+### Stage 9 — Crash reporting & telemetry
+
+Sentry or Apple's MetricKit / TelemetryDeck. Privacy-friendly,
+opt-out toggle in Settings. Without this, we can't tell whether v1.0
+is crashing in real kitchens. Spec §13.
+
+Surface in `SettingsScreen.aboutCard`: "Send anonymous usage data
+to help fix bugs" toggle.
+
+### Stage 9 — completion notes
+
+Pragmatic v1 picked MetricKit over Sentry / TelemetryDeck:
+
+- Zero third-party dependencies — `MetricKit` ships with iOS.
+- No backend required — we don't run a crash-ingestion service yet,
+  so an "upload everything on a timer" design would have nothing on
+  the other end. MetricKit + manual share matches our infrastructure.
+- Apple's App Store Connect crash analytics still surfaces aggregated
+  crashes automatically (via the system-level "Share with App
+  Developers" toggle). MetricKit adds programmatic access to the same
+  payloads so the user can hand us a detailed report when asked.
+
+What landed:
+
+- `Crumbcoach/Shared/TelemetryManager.swift` — `NSObject` singleton
+  conforming to `MXMetricManagerSubscriber`. Public surface:
+  - `setEnabled(_:)` — idempotent subscribe / unsubscribe. Disabling
+    also deletes every stored payload (toggle off is a real reset,
+    not a pause).
+  - `storedPayloadFiles() -> [URL]` — every JSON payload on disk,
+    newest first.
+  - `diagnosticReportText() -> String?` — concatenated text blob
+    suitable for the iOS share sheet. Nil when no payloads exist.
+  - `didReceive(_:)` for both `MXMetricPayload` and
+    `MXDiagnosticPayload` — saves the raw `jsonRepresentation()` into
+    `<App Support>/Crumbcoach/telemetry/<kind>-<ts>-<uuid>.json`,
+    logs counts via `os.Logger`.
+- `PersistedState.telemetryEnabled: Bool = true` — opt-out model per
+  spec. Default ensures fresh installs subscribe and pre-Stage-9
+  saves grandfather to opted-in.
+- `AppState.telemetryEnabled` is stored + persisted; the init applies
+  the preference via `TelemetryManager.shared.setEnabled` so the
+  subscription state matches the saved choice from launch onward.
+  `setTelemetryEnabled(_:)` is the mutator the Settings toggle calls.
+- `SettingsScreen.telemetryCard` — explanatory copy plus the toggle.
+  When enabled, a "Share" button under the toggle hands the
+  concatenated report text to a `UIActivityViewController`-wrapping
+  `ShareSheet` (presented as `.sheet`). The Share button is disabled
+  until at least one payload has actually arrived from MetricKit
+  (which is daily, not real-time — the helper copy says so).
+- `CrumbcoachApp.init` no longer touches telemetry directly;
+  `AppState.init` is the single place the subscription gets applied,
+  which dodges the "read `@State` from `App.init`" SwiftUI footgun.
+
+Privacy posture summary, for the App Store privacy questionnaire
+(Stage 11):
+
+- Data we collect on-device: MetricKit crash + hang diagnostics and
+  daily metric payloads (CPU / memory / disk-write outliers, signpost
+  intervals). Apple-aggregated; no PII.
+- Data we transmit: none, automatically. Users can manually share
+  reports via the iOS share sheet.
+- Identifiers: none beyond what MetricKit itself includes (already
+  privacy-anonymized by Apple).
+- Toggle path: Settings → Diagnostics → "Collect crash diagnostics on
+  this iPad".
+
+Known gaps:
+
+- No backend ingestion means we still rely on App Store Connect's
+  automatic crash analytics for the actual "is v1 crashing" signal.
+  Wiring a Sentry/TelemetryDeck account is a Phase D consideration
+  once the user base justifies it.
+- `MXMetricPayload.jsonRepresentation()` produces verbose JSON; we
+  don't redact anything on the local side. App sandbox already keeps
+  this private to the user.
+- We don't yet count "share button taps" or surface which payloads
+  the user has already shared. Stage 14 polish if it ever matters.
+
+### Stage 10 — Accessibility audit
+
+- VoiceOver labels on every interactive element. Many of our custom
+  `Button { Label(...) }` views render the label visually but not as
+  an accessibility label.
+- Dynamic Type rollout beyond the sidebar (active-bake numbers,
+  recipe-detail tables).
+- High-contrast mode pass — verify all `Theme.*` colors meet WCAG AA
+  on white.
+- Reduced motion: gate the `.easeOut(duration: 0.18)` screen-switch
+  animation in `AppShell` behind `@Environment(\.accessibilityReduceMotion)`.
+
+### Stage 10 — completion notes
+
+**VoiceOver:**
+
+- `CCIconView` now defaults to `.accessibilityHidden(true)`. The
+  overwhelming majority of icon usages pair an SF Symbol with sibling
+  text — VoiceOver would otherwise read "Camera. Take photo." for
+  every Label. The decorative default cleans that up across every
+  screen.
+  - New optional `accessibilityLabel: String?` parameter exposes the
+    icon explicitly when it IS the meaning (no current callers; the
+    hook is there for future icon-only contexts).
+- Icon-only buttons now carry explicit `.accessibilityLabel`:
+  - DiagnosticScreen idle-overlay big camera ("Take crumb photo" +
+    hint "Opens the camera or photo library to start a diagnostic").
+  - `FeedbackButton` thumbs up / thumbs down ("Useful" / "Not
+    useful") with `.isSelected` trait when active.
+  - `AnnotationOverlay` (the colored region markers over the crumb
+    photo) is fully `.accessibilityHidden(true)` — they were already
+    `.allowsHitTesting(false)` but visible to VoiceOver.
+- The `CompleteBakeSheet` rating stars are now a single
+  `.accessibilityElement(children: .contain)` group labeled "Rating"
+  with value `"\(rating) of 5 stars"`. Each star button still works
+  individually but VoiceOver also gets a coherent summary.
+- `FoldChip` (tap-gesture, not a Button) gets `.accessibilityAddTraits(.isButton)`
+  plus a label ("Fold N of M") and value (Done / Up next / Pending)
+  so VoiceOver can both find the chips and announce their state.
+
+**Dynamic Type:**
+
+- `Typography.display / .ui / .mono` now anchor every font to `.body`:
+  - Custom-font path: `Font.custom(name, size:size, relativeTo: .body)`
+    so installed Instrument Serif / Geist / Geist Mono scale with the
+    user's Larger Text setting.
+  - System-fallback path: `UIFontMetrics(forTextStyle: .body).scaledValue(for: size)`
+    so the same scaling applies when the bundled font isn't loaded.
+- The `Theme.swift` file gained `import UIKit` because `UIFontMetrics`
+  lives there.
+- Side effect: every Text in the app now scales beyond the sidebar
+  bounds the plan called out — active-bake numbers, recipe-detail
+  tables, journal cards, etc. The sidebar's existing
+  `@Environment(\.dynamicTypeSize)` scaling stays in place and now
+  agrees with the rest of the UI.
+
+**Reduced motion:**
+
+- `AppState.reduceMotion: Bool = false`. `AppShell` mirrors
+  `@Environment(\.accessibilityReduceMotion)` into it on appear and
+  on change.
+- `AppState.goTo(_:)` no longer wraps the screen switch in
+  `withAnimation` when `reduceMotion == true` — the state change
+  still happens, just instantly.
+- The ScrollView's screen-switch `.transition` is also gated:
+  `reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top))`.
+
+**Contrast audit on white (#FFFFFF) — WCAG AA findings:**
+
+Colors that pass for normal body text (≥ 4.5:1):
+`slate500..slate950`, `primaryDeep`, `warm700`, `accent`,
+`success700`, `pillGoodFg`, `pillWarnFg`, `pillInfoFg`, `pillBadFg`,
+`pillNeutFg`.
+
+Colors that pass only for large text (3:1 ≤ contrast < 4.5):
+`slate400` (decorative + large-only usages today),
+`primary` (#B86A3A — used as link color at 12pt in a few places),
+`warm` (#D97706),
+`success600`.
+
+Colors that fail for all text:
+`slate300` (~1.6:1, used for dashed borders + disabled stars —
+decorative, OK),
+`sky400` (~2.0:1, used as scheduler dot color — decorative).
+
+Known gap: `primary` as link color at 12pt in "Add a starter →" /
+"Feed at 8:14 PM →" misses AA. Fixing this means either bumping the
+primary toward a deeper terracotta (visual identity change — needs
+designer input) or moving those small-text uses to `primaryDeep`.
+Documented; not auto-fixed. `warm` at 11.5–12pt in the Active Bake
+"Live activity" subtitle has the same shape; same call.
+
+Known gaps deliberately left for later:
+
+- The Sidebar's "LIVE" badge uses 9pt text — fails AA even with
+  `success700` (3.2:1 at that size). The minimum body text size in
+  the app is 11pt; bringing the badge up costs design churn.
+- Recipe-detail tables and the diagnostic context bar still rely
+  heavily on `slate500` body — passes by a hair (4.7:1). A future
+  Dark Mode pass (Stage 14+ polish) is the place to recompute these
+  semantically.
+
+## Phase B — 1.x quality & polish (post-launch)
+
+The "now that we shipped, make it feel like an app people pay for"
+phase. None of these block 1.0 but each one is a noticeable upgrade.
+
+### Stage 12 — Multi-page onboarding tour + Settings units & temp source
+
+Replace the single-card onboarding with a 3-page tour (one-app-pitch,
+how-it-works, name + notifications). Add to `SettingsScreen`:
+
+- Units toggle (g vs oz). Threads through `CCFormat` and the recipe
+  editor's "Grams" labels.
+- Kitchen-temp source switcher: Manual (current) vs HomeKit (Stage 20
+  delivers the actual data path; the switcher is just a stub UI for
+  now).
+
+### Stage 12 — completion notes
+
+**Onboarding tour:** `OnboardingScreen` is now a 3-page TabView-style
+flow driven by a `page` int + shared chrome:
+- **Page 1 — pitch.** "One app for every bread you bake." + three
+  feature rows (library / scheduler / starter).
+- **Page 2 — how it works.** "Bake with the timer." + three rows
+  (action-point reminders, schedule reflow, journal patterns).
+- **Page 3 — name + notifications.** The original name TextField plus
+  a primary-tint callout offering "Allow" reminders inline. Tapping
+  Allow calls `state.requestNotificationPermission()` and morphs the
+  callout to a "Reminders set up" check state. Skipping it just keeps
+  the system prompt for first Scheduler-confirm. Either way, "Get
+  started" closes onboarding and writes the user's name through
+  `state.completeOnboarding(name:)`.
+- The page dots animation honors `state.reduceMotion` (Stage 10).
+- Brand + page indicator stay in the same place across pages so the
+  reader's eye doesn't have to relocate. "Load demo data" stays in
+  the bottom-left of every page.
+
+**Units (grams / ounces):**
+
+- `Units` enum lives in `Core/Formatters.swift` next to `CCFormat`.
+  `shortLabel` returns "g" / "oz"; `inputLabel` returns "Grams" /
+  "Ounces" for headers; `gramsPerOunce = 28.349523125` is the
+  conversion constant.
+- `CCFormat` gained:
+  - `weight(grams:units:) -> String` — "500 g" or "17.6 oz".
+  - `weightValue(grams:units:) -> String` — value only, used in
+    sites with a separate unit label.
+  - `grams(from:units:) -> Double` — editor input parser, converts
+    user-typed numbers back to canonical grams.
+- `PersistedState.units: Units = .grams` (default = grams, so old
+  saves grandfather without surprise). `AppState.units` mirrors it,
+  with `setUnits(_:)` as the mutator.
+- All ingredient weights remain canonical grams on disk; only the
+  display + editor input layer flips.
+- Call sites updated:
+  - `RecipeEditorScreen.IngredientRow` — TextField binds through a
+    `displayWeight: Binding<Double>` projection that converts on
+    read/write so the user types in their chosen unit but the model
+    stores grams.
+  - Editor section header shows "Ingredients (grams)" / "(ounces)"
+    so the unit is unambiguous before the row labels appear.
+  - `RecipeDetailScreen` — Dough wt hero, ingredient table column,
+    and the scale-slider total all run through `CCFormat.weight(...)`.
+  - `ActiveBakeScreen` recipe header "Total weight" stat.
+  - `LibraryScreen.RecipeCard` — picks up `units` as a parameter,
+    formats the dough-weight stat block accordingly.
+
+**Kitchen-temp source switcher (stub):**
+
+- `KitchenTempSource` enum (`.manual`, `.homeKit`).
+- `AppState.kitchenTempSource` + `setKitchenTempSource(_:)`, persisted
+  via `PersistedState.kitchenTempSource`.
+- New `kitchenCard` section in `SettingsScreen` with two
+  segmented-Picker rows: weight units, then kitchen temp source. Both
+  copy lines explicitly say "HomeKit pairing arrives in a future
+  update" / "Slide the Scheduler's kitchen temperature manually each
+  bake" — keeps the user from expecting magic.
+- The Scheduler does NOT yet honor `.homeKit` — Stage 20 wires that.
+  Persisting the choice means Stage 20 can flip behavior without
+  another migration.
+
+Known gaps deliberately left for later:
+
+- The Starter screen still displays raw "(weightGrams)g" / "180g" in
+  the chip + AI card (we didn't audit all weight-text in the starter
+  surface). That's a Stage 13 starter-editor concern once we have a
+  starter editor to thread units through.
+- Active-bake fold spacing and recipe-detail preferment percentages
+  show no oz path — they don't have raw weights to flip.
+- Onboarding doesn't expose Units / Temp source on the way through.
+  The thinking was: "fewer decisions during first-launch keeps the
+  flow short", and Settings is one tap from Home. Reconsider if
+  TestFlight feedback says otherwise.
+
+### Stage 13 — Recipe editor v2
+
+Editor scope creep deferred from Stage 4:
+
+- **Preferments** — add / remove / edit tangzhong, yudane, levain
+  build blocks. Currently read-only (and seeded recipes round-trip
+  but can't be re-created in the UI).
+- **Twin-scald** toggle.
+- **Recipe photo picker** — replace `Recipe.photo` (currently the
+  bundled asset name) via `.photoPicker`. Reuse Stage 1 plumbing.
+
+### Stage 13 — completion notes
+
+All three scope items landed in `RecipeEditorScreen`. Threading them
+through the save path also fixed a latent bug where preferment flour
+was missing from the baker's-percent denominator.
+
+**Preferments** — new collapsible `prefermentsSection`:
+
+- One `DisclosureGroup` per `Preferment` (`PrefermentRow`). Collapsed
+  shows the name + technique + flour %; expanded reveals name /
+  technique / prep / flour% / sub-ingredient list with the same
+  unit-aware `IngredientRow` the main dough uses (so oz mode applies
+  inside preferments too).
+- "Add preferment" is a `Menu` with a fixed catalogue of templates —
+  `PrefermentTemplate.levain / .yudane / .tangzhong / .biga / .poolish`.
+  Each ships a sensible default name, technique, prep text, flour %,
+  and seed sub-ingredients tagged with `section = id`. Templates
+  already present in the recipe are listed as disabled checkmarks so
+  the user can see they exist.
+- Deleting a preferment scrubs any `Stage.scaldRef` pointing at it so
+  there are no dangling references after the row goes away.
+- Custom preferments (free-form ids) are intentionally out of scope —
+  `Stage.scaldRef` and `Ingredient.section` reference these ids by
+  string, and a freeform id field invites collisions and typos.
+
+**Twin-scald toggle:** one `Toggle("Twin scald (yudane + tangzhong)",
+isOn: $draft.twinScald)` row in the metadata section. The recipe-
+detail surfaces (Stage 4) already know how to read `twinScald` — they
+just had no editor entry point before.
+
+**Recipe photo:**
+
+- New `photoSection` at the very top of the form: a 110×80 preview
+  (`BreadPhoto`, which resolves disk → bundled asset → gradient
+  fallback per Stage 1), a "Choose photo" / "Replace photo" button,
+  and a destructive "Remove photo" button.
+- The picker uses the existing `.photoPicker` modifier (Stage 1).
+  Saved photos persist via `state.persistence.savePhoto` and the
+  returned filename becomes `draft.photo`. The Stage 7 photo-error
+  surface (`state.photoErrorMessage`) catches save failures.
+
+**Save path tightened:**
+
+- Blank-name preferment sub-ingredients get filtered out alongside
+  main-dough blanks.
+- Every main-dough ingredient is now tagged `section = "main"` on
+  save (seed recipes did this; user-created ones now match).
+- Every preferment sub-ingredient is force-re-tagged with its
+  preferment's id so a stage / detail view can group them by section
+  even if the user dragged a row in from somewhere else.
+- `combinedFlour` (main + preferment flour) is the denominator for
+  baker's % across every ingredient row, AND for `Preferment.flourPct`.
+  Previously the editor only summed main-dough flour, so a recipe
+  with a yudane on save reported wrong percentages.
+- `totalDoughGrams` sums across main + every preferment.
+- `flourError` and `weightsError` validators now look at preferment
+  ingredients too, so an all-preferment recipe (rare but legal) can
+  validate, and a negative sub-ingredient weight is caught.
+
+Known gaps deliberately left for later:
+
+- Recipe photo input is library/camera only; we don't yet pull the
+  hero from a linked URL's OG-image when the user pastes a URL.
+  That's Stage 17 (JSON-LD import) territory.
+- No drag-to-reorder preferments — the order they're added is the
+  order they appear. Reorder is a small editor polish if it becomes
+  a complaint, but the only reader of this order is the Recipe Detail
+  ingredients table.
+- Sub-ingredient list inside a preferment uses an `.onDelete` swipe
+  but doesn't expose `EditButton` — adding `.onMove` would mean a
+  per-preferment edit-mode toggle, which is more chrome than the
+  three-row average case warrants.
+
+### Stage 14 — Haptics + sound polish
+
+- Light haptic on "Mark fold N done".
+- Medium haptic on stage advance / skip.
+- Success haptic + sound on `completeBake`.
+- Selection haptic on TagPill / chip taps.
+- Animation pass: tighten spring damping on the screen-switch
+  transition, add micro-fade on Active Bake card content changes.
+
+Wraps a polish pass over the whole app — the difference between
+"works" and "feels designed".
+
+### Stage 14 — completion notes
+
+**Haptics** — new `Crumbcoach/Shared/Haptics.swift` is the single
+choke point. Four static methods cover every surface that wants
+feedback:
+
+- `Haptics.tick()` — light `UIImpactFeedbackGenerator(.light)`. Wired
+  into `AppState.markFold` (the inner method that drives both
+  `incrementFold` and direct chip taps). Only fires when the fold
+  count actually changes — tapping the already-done fold count
+  doesn't buzz.
+- `Haptics.advance()` — medium impact. `advanceStage()` and
+  `skipStage()` both fire it before delegating to `moveStage`, so the
+  outer-method intent is the haptic source, not the internal state
+  machine.
+- `Haptics.success()` — `UINotificationFeedbackGenerator` success.
+  Fires once inside `completeBake(rating:note:)` after the journal
+  entry persists.
+- `Haptics.select()` — `UISelectionFeedbackGenerator`. Wired into
+  every `TagPill` tap (Library filters, Scheduler day/time, Diagnose
+  context chips, etc.) by routing through the button's action.
+
+Haptics deliberately don't go through `AppState.reduceMotion` — the
+system has its own accessibility setting for haptics (Settings →
+Accessibility → Touch → Vibration), and the generators respect it
+automatically. The system also silences haptics in Low Power Mode.
+
+**Sound (deferred):** the spec mentioned "Success haptic + sound on
+completeBake". A reliable cross-version sound needs a bundled audio
+asset, and v1's curated copy doesn't have one yet. The success
+haptic carries the moment; sound is a known gap.
+
+**Animation polish:**
+
+- `AppState.goTo(_:)` now uses
+  `.spring(response: 0.28, dampingFraction: 0.86)` instead of
+  `.easeOut(duration: 0.18)`. Snappier into the new screen with
+  enough damping to avoid overshoot. Reduce-motion still gates the
+  whole `withAnimation` — that path stays cut.
+- `ActiveBakeScreen.currentStageCard` — the title/note stack gets
+  `.id(bake.currentStageIndex)` plus `.transition(.opacity)` +
+  `.animation(.easeInOut(0.18), value: currentStageIndex)`, so the
+  stage swap crossfades the title rather than popping. The fold-
+  count ring gets a separate `.easeOut(0.25)` animation keyed off
+  `foldsDone` so the ring sweep doesn't jump. Both gates are
+  `nil`-when-`state.reduceMotion`.
+
+Known gaps deliberately left for later:
+
+- No bundled success sound (see above). Adding one means picking a
+  ~80ms WAV and dropping it into Resources; trivially small change,
+  just unfinished design work.
+- Onboarding page-dot animation still uses `easeOut(0.18)` — kept
+  for now because the dots are 6pt circles and the curve hardly
+  matters at that scale.
+- `ccPrimary` / `ccSecondary` buttons don't fire haptics on their
+  own. The few places where a haptic would help (Schedule confirm,
+  Settings reset confirmations) currently rely on the chip/Toggle/
+  action path. Worth a future polish if user feedback asks.
+
+### Stage 15 — iCloud sync
+
+Replace the JSON-on-disk store with `NSPersistentCloudKitContainer`.
 
 Considerations:
 - SwiftData migration is a larger rewrite (every value-type model
   becomes a `@Model` class with `@Relationship`).
 - `NSPersistentCloudKitContainer` is the lower-risk path — Core Data
-  underneath but minimal API changes.
+  underneath but minimal API surface change.
 - Either way, requires the iCloud capability in `project.yml`:
   ```yaml
   entitlements:
@@ -748,86 +1398,544 @@ Considerations:
     com.apple.developer.icloud-container-identifiers:
       - iCloud.com.crumbcoach.app
   ```
+- Photo blobs need a CloudKit asset path, not the local
+  `Application Support/photos/` directory.
 
-### Stage 7 — Live Activity
+### Stage 15 — completion notes
+
+**Scope decision:** the plan's `NSPersistentCloudKitContainer` path is
+a multi-day model-layer rewrite (every Codable struct → `@Model`
+class). For Phase B polish, we shipped a pragmatic alternative —
+**iCloud Drive sync of the existing JSON state file** via the
+ubiquity Documents container. This gives users cross-device sync
+without touching the persistence schema. Conflict resolution is
+last-write-wins on the JSON blob; per-record merge is a Phase C
+upgrade when iPhone / Watch targets (Stages 21, 28) justify the
+CloudKit container effort.
+
+**Implementation:**
+
+- `Crumbcoach/Shared/CloudSyncManager.swift` — `@MainActor`
+  `ObservableObject` singleton.
+  - `isAvailable: Bool` — checks `FileManager.default.ubiquityIdentityToken`.
+  - `setEnabled(_:)` — mirror of the Settings toggle. When disabling,
+    leaves the cloud copy intact (Settings can re-enable without
+    losing it).
+  - `push(localStateURL:) async` — copies the local `state.json` up
+    to `<ubiquity>/Documents/state.json`. Status flips to `.syncing`
+    while the off-main copy runs, then `.syncedAt(date)` or `.failed`.
+  - `pullIfNewer(into:) async -> Bool` — reads cloud mtime, compares
+    against local, copies down only if cloud is strictly newer (with
+    a 0.5s slop for filesystem precision). Returns true so callers
+    can reload state.
+  - `SyncStatus` enum drives the Settings status line:
+    `.disabled / .unavailable / .ready / .syncing / .syncedAt / .failed`.
+- `PersistedState.cloudSyncEnabled: Bool = false` — opt-in default.
+  Existing saves grandfather to off; the user has to flip the toggle.
+- `AppState`:
+  - `cloudSyncEnabled` mirrors the persisted preference.
+  - `setCloudSyncEnabled(_:)` toggles and kicks an immediate
+    `syncWithCloud()` on enable so a freshly-paired iPad pulls
+    whatever the user's other devices have written.
+  - `syncWithCloud()` does pull-then-push; if the pull replaces
+    local state, `reload(from:)` walks every observable field so
+    the live UI matches the new file without re-instantiating
+    AppState (which would drop notification auth, photo error, etc).
+  - `saveSoon` / `saveNow` push to cloud after every local write
+    (when enabled). The push runs in a detached Task so it can't
+    block the save loop.
+  - `init` bounces `CloudSyncManager.shared.setEnabled(initial)`
+    onto MainActor so the manager's internal flag matches the
+    persisted preference from launch onward.
+- `CrumbcoachApp.scenePhase == .active` fires a `syncWithCloud()`
+  task alongside the existing notification auth refresh. Cheap
+  no-op when disabled or iCloud is signed out.
+- `SettingsScreen.cloudSyncCard` — new section with toggle (disabled
+  when `cloudSync.isAvailable == false`), "Sync now" button driving
+  `state.syncWithCloud()`, and a live status line bound to
+  `cloudSync.status` via `@ObservedObject`.
+- `project.yml` gains an `entitlements:` block for the bundle id —
+  `iCloud.com.crumbcoach.app` for documents + ubiquity. A team
+  building this needs to enable iCloud (Documents) on the App ID in
+  Apple Developer + provision the container. `CloudSyncManager`
+  gracefully no-ops at runtime if the container isn't reachable, so
+  builds without provisioning still run.
+
+**Known gaps deliberately left for later:**
+
+- Photos aren't synced. Each device keeps its own
+  `<App Support>/Crumbcoach/photos/` directory; the JSON references
+  filenames that resolve to gradient placeholders on the other iPad.
+  Mirroring photos as CKAssets or as additional files in the same
+  ubiquity container is the obvious extension — natural Stage 18
+  (share & export) companion or Stage 21 (Watch) work.
+- No CloudKit subscriptions / push notifications. Cross-device
+  propagation only happens on the receiving device's next foreground
+  (or "Sync now" tap). Real-time sync between two iPads open in the
+  same kitchen is Phase C territory.
+- Last-write-wins on the JSON blob: if both devices edit the same
+  recipe before either syncs, the later push wins outright. For a
+  single-baker single-iPad app the conflict surface is small; the
+  status line ("Last synced HH:MM") lets the user spot drift.
+- The plan's full `NSPersistentCloudKitContainer` migration remains
+  the long-term answer. The ubiquity-Documents path is a stepping
+  stone; when Stage 21 / 28 adds an iPhone or Watch target, the
+  team should revisit the model-layer rewrite.
+
+### Stage 16 — Live Activity
 
 `ActivityKit` widget showing the active bake's current stage, fold
-count, and time-to-next-action. Visual matches the preview in
-`ActiveBakeScreen.liveActivityCard`.
+count, and time-to-next-action. The static preview in
+`ActiveBakeScreen.liveActivityCard` defines the visual target.
 
-### Stage 8 — Recipe URL import (Recipe JSON-LD)
+Includes a Dynamic Island compact variant for iPhones (still relevant
+even though the main app is iPad-only, since notifications can target
+the user's phone if they ever bring CrumbCoach there).
 
-Implement spec §6.1. Most major bread sites (King Arthur, The Perfect
-Loaf, Foodgeek) publish Recipe schema in JSON-LD. Parse it server-side
-or with a `URLSession` + light HTML parsing on-device. Extract formula
-only (ingredients + weights); don't copy prose.
+### Stage 16 — completion notes
 
-### Stage 9 — Share & export
+The Live Activity landed with a full widget-extension target. Lock
+Screen + StandBy view on iPad, Dynamic Island compact + expanded for
+when an iPhone visitor lands.
 
-- Share a recipe via deep link + markdown.
-- Export bakes to CSV (currently "Export to Markdown" button in Journal
-  is a no-op).
-- iOS Share Sheet integration for incoming recipes from Safari.
+**Shared contract:** `Crumbcoach/Shared/ActiveBakeAttributes.swift`
+defines the `ActivityAttributes` type plus its `ContentState`. The
+file is listed in both targets' sources in `project.yml`, so the
+main app and the widget extension agree on the wire shape without a
+framework / package boundary. Static fields (recipe title, started-
+at) freeze at start; dynamic fields (stage name, folds, minutes-to-
+next-action, bake-out-at, isComplete) re-render on every update.
 
-### Stage 10 — Accessibility audit
+**Widget extension target** (`CrumbcoachWidgets/`):
 
-- VoiceOver labels on every interactive element.
-- Dynamic Type rollout beyond the sidebar (already done).
-- High-contrast mode pass.
-- Reduced motion: gate `.fade-up` animations.
+- `CrumbcoachWidgetsBundle.swift` — `@main WidgetBundle` that vends
+  `ActiveBakeLiveActivity`. Stage 19 (Home Screen / Lock Screen
+  complications) will add neighbours here.
+- `ActiveBakeLiveActivity.swift` — `Widget` with an
+  `ActivityConfiguration` shape:
+  - Lock-screen view mirrors the in-app `liveActivityCard` preview:
+    brand chip + recipe title + stage subtitle on the left, time-to-
+    next-action + "Bake out" / "Ready to log" label on the right.
+  - Dynamic Island regions: compact leading icon, compact trailing
+    minutes-to-next, minimal icon, and a four-region expanded view
+    with leading title/stage, trailing time, and a fold-progress
+    capsule strip across the bottom.
+  - Copy helpers (`subtitleText`, `timeToNextLabel`,
+    `compactTrailing`) handle the "complete" branch ("Ready to log",
+    "Done") so the widget doesn't need any conditional rendering on
+    the main app's side.
+- `project.yml` widget entries: `type: app-extension`, bundle id
+  `com.crumbcoach.app.widgets`, sources include the shared
+  attributes file, Info.plist carries the
+  `com.apple.widgetkit-extension` extension point.
+- Main app target embeds the widget via `dependencies: [{ target:
+  CrumbcoachWidgets, embed: true }]` and gains
+  `NSSupportsLiveActivities: true` in Info.plist (required for
+  `Activity<>.request()` to succeed).
+
+**Manager:** `Crumbcoach/Shared/LiveActivityManager.swift` is the
+main-app singleton.
+
+- `start(recipeTitle:startedAt:state:)` — gated on
+  `ActivityAuthorizationInfo().areActivitiesEnabled` so opted-out
+  users see no broken state. Idempotent: re-call ends the previous
+  activity first.
+- `update(_:)` — pushes a fresh `ContentState` to the running
+  activity. Silently dropped when no activity is in flight.
+- `end(immediate:)` — `.default` dismissal lets the lock-screen
+  trailing window keep the final state around (~4h) so the user can
+  glance at "Ready to log" before it fades. `.immediate` is used by
+  reset paths.
+
+**AppState wiring:**
+
+- `startBake` — calls `LiveActivityManager.shared.start(...)` with
+  the freshly-built bake's `ContentState`.
+- `markFold` — pushes an update only when `foldsDone` actually
+  changed (same gate as the haptic).
+- `moveStage` (the shared advance / skip body) — pushes an update
+  after the move completes so the stage name + minutes-to-next-
+  action change ride out together.
+- `completeBake` — `.default` end so the "Ready to log" state
+  lingers briefly.
+- `loadDemoData` / `startOver` — `.immediate` end so no stale
+  activity hangs around after a reset.
+- Two new private helpers: `pushLiveActivityUpdate()` and
+  `liveActivityState(for:recipe:)`. The state-shaper prefers the
+  Stage-8 rebalanced schedule for `minutesToNextAction` and falls
+  back to `bake.bakeOutAt` when there's no schedule.
+
+**Known gaps deliberately left for later:**
+
+- No push-via-server updates — every push happens from the main app
+  while it's foregrounded or briefly backgrounded. Cron-style
+  countdown ticks (the time-to-next number updating once a minute)
+  would need a server push or an in-app timer that wakes the
+  activity on a schedule.
+- The Dynamic Island center region is intentionally empty — on the
+  iPad-only target there's nothing to render there and iPhone
+  expanded variant prefers leading/trailing/bottom. Easy to add a
+  ring progress later when a clearer visual brief emerges.
+- The widget UI uses system fonts / colors (no Geist / Theme) — the
+  widget extension can't read the main app's bundle resources at
+  render time. Pulling Theme tokens into the widget would mean
+  shipping a small shared package; Stage 14 already covered the
+  in-app polish so this stays minimal.
+- "Live Activity disabled by user" doesn't surface anywhere in the
+  app. Worth a Settings tile once we have telemetry to show how
+  often users disable it.
+
+### Stage 17 — Recipe URL import (JSON-LD)
+
+The Stage 4 "Paste URL" button stores the URL string; Stage 17 parses
+the page. Most major bread sites (King Arthur, The Perfect Loaf,
+Foodgeek, Maurizio Leo) publish `Recipe` schema in JSON-LD. Extract
+formula only (ingredients + weights + stages) — don't copy prose.
+
+Spec §6.1. On-device parsing via `URLSession` + light HTML/JSON-LD
+extraction; no server required.
+
+### Stage 17 — completion notes
+
+On-device JSON-LD importer + an "Import recipe" affordance on the
+editor's URL row. Network round-trip stays in-app; no backend.
+
+**Importer** (`Crumbcoach/Shared/RecipeImporter.swift`):
+
+- `RecipeImporter.import(from:session:) async throws -> ImportedRecipe`
+  is the public entry point. Returns a draft `Recipe` + a list of
+  user-visible warnings about lossy parts.
+- Fetch uses `URLSession.shared` with a 20s timeout and a custom
+  `User-Agent` so sites that 403 the default Swift agent (some
+  Cloudflare-fronted bread blogs) still respond.
+- HTTP errors map to `RecipeImporterError.fetchFailed(message)`;
+  non-HTML responses to `.notHTML`. The error type conforms to
+  `LocalizedError` so the editor can surface `.errorDescription`
+  inline.
+- JSON-LD extraction uses an `NSRegularExpression` over the raw
+  HTML to find every `<script type="application/ld+json">…</script>`
+  block. Decoded values are flattened from three common shapes
+  (single object, array, or `@graph` wrapper) into a list of
+  dictionaries.
+- The first dict with `@type == "Recipe"` (case-insensitive, also
+  accepts an array of types) wins. `noRecipeSchema` is the error
+  when none is found.
+- Field mapping:
+  - `name` → title (defaults to `"Imported recipe"` with a warning
+    if missing).
+  - `recipeIngredient` (or older `ingredients`) → ingredient list
+    via `parseGramsAndName`, which handles `g / kg / oz` (with
+    plural / "kilograms" / "ounce" variants) and decimal commas.
+    Unparseable strings become rows with `weightGrams = 0` and add
+    a warning per row.
+  - `categoryGuess(for:)` picks an `IngredientCategory` from name
+    keywords (salt / leaven / liquid / sweet / fat / inclusion /
+    flour fallback). Wrong guesses are cheap — the editor row's
+    Picker corrects them.
+  - `recipeInstructions` accepts a string, an array of strings,
+    `HowToStep` dicts with `text`, or an `itemListElement` nesting.
+    Flattened into one ordered list of strings.
+  - `stageKindGuess(for:)` keyword-maps each instruction to a
+    `StageKind`. The full instruction text becomes the stage note;
+    `durationMin` stays at 0 — we don't make up ferment times.
+- Returned draft carries `source = .linked(url:sourceName:sourceLogo:)`
+  with the source name derived from `url.host` (stripping `www.`).
+  `hydrationPct`/`saltPct`/`leavenPct` are left at 0 — the editor's
+  save path recomputes them against the imported ingredients.
+
+**Editor wiring** (`RecipeEditorScreen.swift`):
+
+- New state: `isImporting`, `importWarnings`, `importError`,
+  `showOverwriteConfirm`.
+- The metadata section's source-URL row gains an "Import recipe"
+  button (with a spinner while in-flight). Below it, an inline
+  error line for `.fetchFailed`/`.noJSONLD`/etc., and a warnings
+  block (yellow triangle icons) for each parse-warning so the user
+  sees exactly what they need to clean up.
+- "Editor has user content" gate: typing a title or adding flour
+  beyond the four-row sourdough skeleton flips an overwrite
+  confirmation before the fetch. Fresh "I just pasted a URL"
+  imports skip the confirmation.
+- `applyImport(_:)` replaces title / ingredients / preferments /
+  stages / source / twin-scald from the imported draft; the user's
+  `editingRecipeId` and `editingRecipeId`-bound buttons stay put.
+- The existing save path's combined-flour math (Stage 13)
+  recomputes percentages on save, so imported recipes round-trip
+  cleanly without an extra import-time pass.
+
+**Known gaps deliberately left for later:**
+
+- Photos aren't downloaded. The schema's `image` field is ignored —
+  the editor stays on the bundled fallback, and the user can pick
+  a photo via the Stage 13 photo picker.
+- We don't honor the `nutrition` block. Bakers don't care; the
+  field exists in the schema but parsing it would add noise without
+  signal.
+- No preferment auto-detection. If a recipe lists a separate "for
+  the levain" section, those ingredients land in the main list and
+  the user has to move them into a preferment block. A common
+  schema variant uses `recipeIngredient` groups with section
+  headings; supporting that cleanly is a future polish.
+- Cup / tbsp / tsp parsing is intentionally out of scope. Different
+  flours have different cup→gram ratios, and our v1 stance is "if
+  the recipe doesn't publish grams, the import is incomplete." Each
+  such row becomes a warning the user resolves manually.
+- We don't follow JSON-LD `@id` references across blocks. Rare in
+  the wild for Recipe schemas; the failure mode is the same as
+  `noRecipeSchema`.
+- The custom `User-Agent` string is best-effort. Sites that gate on
+  more sophisticated bot detection (rare for recipe blogs) may
+  still 403; the user sees the `.fetchFailed(HTTP 403)` message.
+
+### Stage 18 — Share & export
+
+- Share a recipe via deep link (`crumbcoach://recipe/<id>`) and
+  Markdown.
+- Wire Journal's "Export to Markdown" to actually produce a `.md` or
+  `.csv` file via the iOS share sheet.
+- iOS Share Sheet integration for incoming recipes from Safari (the
+  receive side of Stage 17).
+
+### Stage 18 — completion notes
+
+All three sub-tasks landed. Share / export now works in both
+directions: recipes + journal flow out via the iOS share sheet, and
+Safari pages flow in via a dedicated share extension.
+
+**Markdown serializer** (`Crumbcoach/Shared/RecipeExporter.swift`):
+
+- `markdown(for recipe:units:)` — title + metadata + per-preferment
+  block + main-dough ingredients table + numbered stages, with a
+  trailing `crumbcoach://recipe/<id>` deep link footer so any
+  Markdown reader has a "tap to open" path back. Tables render in
+  the user's chosen units (Stage 12).
+- `markdown(forJournal entries:recipeLookup:units:)` — headline
+  stats (count, average rating, average kitchen temp) + one block
+  per entry (rating with star glyphs, hydration, bulk, kitchen,
+  diagnosis, freeform note).
+- `deepLink(for recipe:)` — canonical `crumbcoach://recipe/<id>`.
+- `importDeepLink(sourceURL:)` — canonical
+  `crumbcoach://import?url=<encoded>` used by the share extension.
+
+**URL scheme + deep-link routing:**
+
+- `project.yml` registers `CFBundleURLTypes` with the `crumbcoach`
+  scheme on the main app's Info.plist.
+- `AppState.pendingImportURL: String?` is the transient hand-off
+  slot (mirrors Stage 1's `pendingDiagnosticPhoto`).
+- `AppState.handleIncomingURL(_:)` parses two shapes:
+  - `crumbcoach://recipe/<id>` → opens the detail (404s gracefully
+    if the id isn't in the user's library).
+  - `crumbcoach://import?url=<encoded>` → stashes the URL,
+    navigates to the library so the editor can pick it up.
+- `CrumbcoachApp` gains `.onOpenURL { appState.handleIncomingURL($0) }`.
+- `LibraryScreen` watches `state.pendingImportURL` via `.onAppear`
+  + `.onChange`, drains it into a local `editorImportSeed`, and
+  presents the editor. The seed clears on `onDismiss` so a second
+  share doesn't reuse stale state.
+- `RecipeEditorScreen.init(state:editingRecipeId:initialSourceURL:)`
+  takes the seed and pre-fills its `sourceURL` field, so the user
+  just taps "Import recipe" (Stage 17) without retyping.
+
+**Recipe share** (RecipeDetailScreen):
+
+- New "Share" button alongside "Open original" and "Edit". On tap,
+  builds the markdown + deep link via `RecipeExporter` and presents
+  `ShareActivitySheet` with both items, letting the user pick the
+  destination (Mail, Notes, Files, etc).
+
+**Journal export** (JournalScreen):
+
+- The "Export to Markdown" button is back (Stage 6 removed it as a
+  stub). It calls `RecipeExporter.markdown(forJournal:…)` over the
+  full journal and presents the share sheet. Empty-journal state
+  (Stage 7) still hides the right rail entirely, so this button
+  only appears when there's something to export.
+
+**Shared helper:** `Crumbcoach/Shared/ShareActivitySheet.swift` is a
+single `UIActivityViewController` wrapper used by RecipeDetail,
+Journal, and the existing Stage 9 diagnostic share. The previous
+private copy in `SettingsScreen` was deleted in favor of this
+shared one.
+
+**Share extension** (`CrumbcoachShareExtension/`):
+
+- `ShareViewController.swift` — `UIViewController` that reads the
+  shared URL from `extensionContext.inputItems` (handling both
+  `UTType.url` and a plain-text URL fallback), encodes a
+  `crumbcoach://import?url=<encoded>` deep link, walks the
+  responder chain to find `openURL:`, and calls it to hand control
+  to the main app.
+- `project.yml` widget block: type `app-extension`, bundle id
+  `com.crumbcoach.app.share`. Info.plist declares:
+  - `NSExtensionPointIdentifier: com.apple.share-services`
+  - `NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController`
+  - `NSExtensionAttributes.NSExtensionActivationRule` —
+    `NSExtensionActivationSupportsWebURLWithMaxCount: 1` so the
+    extension only surfaces in Safari's share sheet for a single
+    URL (not arbitrary text or files).
+- Main app embeds it via `dependencies: [{ target:
+  CrumbcoachShareExtension, embed: true }]`.
+
+**End-to-end flow** that now works:
+
+1. User reads a King Arthur Country Loaf in Safari.
+2. Taps Share → CrumbCoach.
+3. Share extension fires, encodes the URL, opens the main app via
+   `crumbcoach://import?url=https%3A%2F%2F…`.
+4. `onOpenURL` routes through `handleIncomingURL`, stashes the URL,
+   navigates to the library.
+5. Library's `.onAppear`/`.onChange` drains the pending URL and
+   presents the editor with the source URL pre-filled.
+6. User taps "Import recipe" (Stage 17), the JSON-LD importer
+   populates ingredients + stages, and the user saves.
+
+**Known gaps deliberately left for later:**
+
+- Markdown export doesn't include the recipe photo. The Markdown
+  format can't embed images inline; bundled-asset names are
+  meaningless to the recipient. A future "Export bundle" (zip
+  containing .md + photos) is the natural extension.
+- Journal export is a single concatenated Markdown blob. A CSV
+  variant for spreadsheet importers was mentioned in the plan but
+  not built — bakers asking for "spreadsheet of my bakes" usually
+  want the Markdown copy anyway.
+- The share extension always opens the main app via the responder-
+  chain `openURL:` trick. In sandboxed iOS that's documented as
+  supported for share extensions; it's worked in practice since
+  iOS 14 but isn't formally future-proof. If Apple ever locks this
+  down, App Groups + a queued file the main app drains on launch
+  is the fallback.
+- The share extension has no UI — taps Share → CrumbCoach → main
+  app opens almost instantly. A toast/confirmation could go in if
+  user testing finds the silent hand-off confusing.
 
 ---
 
-## Tier 3 stages (months, possibly partnerships)
+## Phase C — Platform expansion (1.x → 2.0)
 
-### Stage 11 — On-device AI diagnostic
+iOS-ecosystem features that turn CrumbCoach from "an iPad app" into
+"a baker's tool that lives across their devices".
 
-Train a 4 B-parameter vision-language model on bread imagery, quantize
-to int4, export to Core ML, bundle in the app (2–4 GB). Implement spec
-§4.5 and §10. This is a separate ML project, not an app-engineering
-task.
+### Stage 19 — iOS widgets
 
-### Stage 12 — Cloud Pro tier
+Home Screen + Lock Screen widgets for active bake / next action:
 
-StoreKit 2 subscription ($30/year). Stateless cloud inference service.
-Receipt validation. Spec §7 and §9.
+- Small: current stage + minutes-to-next-action.
+- Medium: + fold counter ring + bake-out time.
+- Large: + timeline strip.
 
-### Stage 13 — Sourdough Sidekick BLE
+Lock Screen widget pairs naturally with the Live Activity from Stage 16.
 
-Requires partnership with FirstBuild for the API. Until then this is
-blocked. Spec §4.7 and §8.
-
-### Stage 14 — HomeKit / Matter sensors
+### Stage 20 — HomeKit / Matter kitchen-temperature integration
 
 Read real kitchen temperature from a HomeKit accessory; replace the
-static `state.kitchenTempC`.
+static `state.kitchenTempC`. Settings exposes the device picker.
+Scheduler's "kitchen temperature" slider becomes the override (manual
+mode), with HomeKit as the auto source.
 
-### Stage 15 — Apple Watch companion
+### Stage 21 — Apple Watch companion
 
-WatchKit / SwiftUI for watchOS showing next-action prompts and the bake
-timer.
+WatchKit / SwiftUI for watchOS showing next-action prompts and the
+bake timer. Mark folds from the watch (taps in the wrist).
+Complications on the watch face for active bakes.
+
+Separate target in `project.yml`; shares Models + Core via a package.
+
+### Stage 22 — Localization
+
+English-only at launch (per spec). Pick one major language for 1.x —
+likely Spanish or German based on baker community density. RTL
+support if Arabic / Hebrew are ever on the list (currently no).
 
 ---
 
-## Tier 4 — Infrastructure & growth
+## Phase D — Commercial / Pro tier
 
-### Stage 16 — Crash reporting & telemetry
+Monetization + the headline ML feature. Don't start until 1.x is
+stable in users' hands.
 
-Sentry or equivalent. Privacy-friendly. Spec §13.
+### Stage 23 — Cloud Pro subscription tier
 
-### Stage 17 — App Store screenshots & description
+StoreKit 2 subscription ($30/year per the spec). Includes:
 
-iPad 12.9" landscape screenshots. Description, keywords, privacy
-questionnaire.
+- Paywall screen, restore-purchases flow, family sharing.
+- Receipt validation (server-side preferred).
+- Subscription state in `AppState` (active / lapsed / trial).
+- Pro-gated features TBD — likely Stage 24's cloud inference, deeper
+  analytics, recipe collaboration.
 
-### Stage 18 — Localization
+Spec §7 and §9.
 
-English-only at launch (per spec). Phase 4.
+### Stage 24 — On-device AI crumb diagnostic
 
-### Stage 19 — Recipe library expansion
+The headline differentiator. Train a 4 B-parameter vision-language
+model on bread imagery, quantize to int4, export to Core ML, bundle
+in the app (2–4 GB). Replaces the stubbed
+`DiagnosticScreen.startAnalysis` timer with a real diagnosis.
 
-Bring the seed library to 50 originals across all bread types per spec
-§4.1.
+This is a separate ML project, not an app-engineering task. Spec §4.5
+and §10.
+
+### Stage 25 — Sourdough Sidekick BLE integration
+
+Requires partnership with FirstBuild for the API. Until then this is
+blocked. Spec §4.7 and §8. The UI surface
+(`StarterScreen.sidekickCard`) is already designed; only the BLE
+plumbing is missing.
+
+---
+
+## Phase E — Content & growth
+
+Long-tail features that grow the user base or surface area but aren't
+on the critical path.
+
+### Stage 26 — Recipe library expansion to 50+
+
+Bring the seed library to ~50 originals across every bread type in
+spec §4.1. Currently 9 originals + 4 linked recipes.
+
+### Stage 27 — Native iPad citizenship
+
+Spotlight indexing of recipes, Handoff between devices,
+drag-and-drop photos into the editor / active bake. Small features
+individually; together they make CrumbCoach feel like a first-class
+iPad app.
+
+### Stage 28 — iPhone target decision
+
+The current layout is iPad-landscape-only and uses 1440 × 1024 as a
+canvas. Two paths:
+
+1. **Stay iPad-exclusive** — lean into that in marketing; iPad is
+   where the kitchen counter lives anyway.
+2. **Ship an iPhone build** — significant work; every screen would
+   need a portrait/compact layout.
+
+Pick one before 2.0. The decision affects Stage 21's Watch
+companion architecture (Watch typically pairs with iPhone).
+
+---
+
+## Phase F — Final ship prep
+
+The non-code work that has to happen to actually push v1.0 to the App
+Store. Moved to the end of the plan so the engineering phases (A–E)
+can land first; this is a marketing / content sprint, not a Swift
+sprint.
+
+### Stage 11 — App Store assets + privacy
+
+12.9" iPad landscape screenshots (5 minimum: Today, Active bake,
+Library, Recipe detail, Journal). Description, keywords, App Store
+category, age rating questionnaire. **Privacy questionnaire** is the
+non-obvious blocker — answer requires knowing what the app collects.
+Add:
+
+- Public privacy policy URL (host on a static site or GitHub Pages).
+- Support URL.
+- Marketing URL (optional).
 
 ---
 
@@ -842,11 +1950,65 @@ Bring the seed library to 50 originals across all bread types per spec
 
 ## Status
 
+### Tier 1 — shipped
+
 | Stage | Status   | Owner | Notes |
 |-------|----------|-------|-------|
-| 1     | done     |       | See "Stage 1 — completion notes". |
-| 2     | done     |       | See "Stage 2 — completion notes". |
-| 3     | done     |       | See "Stage 3 — completion notes". |
-| 4     | done     |       | See "Stage 4 — completion notes". |
-| 5     | done     |       | See "Stage 5 — completion notes". |
-| 6+    | not started |       |       |
+| 1     | done     |       | Camera & photo picker. See "Stage 1 — completion notes". |
+| 2     | done     |       | Local notifications. See "Stage 2 — completion notes". |
+| 3     | done     |       | Start-a-bake flow. See "Stage 3 — completion notes". |
+| 4     | done     |       | Recipe editor. See "Stage 4 — completion notes". |
+| 5     | done     |       | Onboarding & settings. See "Stage 5 — completion notes". |
+
+### Phase A — pre-1.0 ship-readiness (blocking)
+
+| Stage | Status   | Owner | Notes |
+|-------|----------|-------|-------|
+| 6     | done     |       | Stub-button cleanup. See "Stage 6 — completion notes". |
+| 7     | done     |       | Empty & error states. See "Stage 7 — completion notes". |
+| 8     | done     |       | Notification rescheduling on advance / skip. See "Stage 8 — completion notes". |
+| 9     | done     |       | Crash reporting + telemetry. See "Stage 9 — completion notes". |
+| 10    | done     |       | Accessibility audit. See "Stage 10 — completion notes". |
+
+### Phase B — 1.x quality & polish
+
+| Stage | Status   | Owner | Notes |
+|-------|----------|-------|-------|
+| 12    | done     |       | Multi-page onboarding + Settings units & temp-source switchers. See "Stage 12 — completion notes". |
+| 13    | done     |       | Recipe editor v2. See "Stage 13 — completion notes". |
+| 14    | done     |       | Haptics + animation polish. See "Stage 14 — completion notes". |
+| 15    | done     |       | iCloud Drive sync (ubiquity Documents). See "Stage 15 — completion notes". |
+| 16    | done     |       | Live Activity widget. See "Stage 16 — completion notes". |
+| 17    | done     |       | Recipe URL import (JSON-LD). See "Stage 17 — completion notes". |
+| 18    | done     |       | Share & export. See "Stage 18 — completion notes". |
+
+### Phase C — platform expansion (1.x → 2.0)
+
+| Stage | Status   | Owner | Notes |
+|-------|----------|-------|-------|
+| 19    | not started |    | iOS widgets (Home Screen + Lock Screen). |
+| 20    | not started |    | HomeKit / Matter kitchen-temperature integration. |
+| 21    | not started |    | Apple Watch companion. |
+| 22    | not started |    | Localization — first non-English language. |
+
+### Phase D — commercial / Pro tier
+
+| Stage | Status   | Owner | Notes |
+|-------|----------|-------|-------|
+| 23    | not started |    | Cloud Pro subscription tier (StoreKit 2). |
+| 24    | not started |    | On-device AI crumb diagnostic (Core ML VLM). |
+| 25    | not started |    | Sourdough Sidekick BLE integration (gated on partnership). |
+
+### Phase E — content & growth
+
+| Stage | Status   | Owner | Notes |
+|-------|----------|-------|-------|
+| 26    | not started |    | Recipe library expansion to ~50. |
+| 27    | not started |    | Native iPad citizenship — Spotlight, Handoff, drag-and-drop. |
+| 28    | not started |    | iPhone target decision (support iPhone or stay iPad-exclusive). |
+
+### Phase F — final ship prep
+
+| Stage | Status   | Owner | Notes |
+|-------|----------|-------|-------|
+| 11    | not started |    | App Store assets + privacy policy + privacy questionnaire. |
