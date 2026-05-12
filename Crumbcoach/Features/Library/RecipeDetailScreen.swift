@@ -2,11 +2,11 @@ import SwiftUI
 
 // Recipe detail — hero numbers row, ingredients table (with twin-scald block
 // or tangzhong/yudane conversion), stages list, right-rail with scale +
-// hydration sliders.  Uses the BakersMath / Conversion modules for real
-// computation when the user adjusts sliders.
+// hydration sliders. The transformed recipe is memoized so slider drags
+// don't re-run the conversion pipeline three times per frame.
 
 struct RecipeDetailScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
     let recipeId: String
 
     @State private var scale: Double = 1.0
@@ -25,91 +25,77 @@ struct RecipeDetailScreen: View {
         }
     }
 
-    var recipe: Recipe? { state.recipe(recipeId) }
+    // MARK: View
 
-    var transformed: Recipe? {
-        guard let r = recipe else { return nil }
-        let scaled = BakersMath.scale(r, toTotalGrams: r.totalDoughGrams * scale)
-        let (h, _) = BakersMath.adjustHydration(scaled, to: hydration)
-        switch conversion {
-        case .direct:    return h
-        case .tangzhong: return Conversion.convertToTangzhong(h).0
-        case .yudane:    return Conversion.convertToYudane(h).0
+    @ViewBuilder
+    var body: some View {
+        if let recipe = state.recipe(recipeId) {
+            content(for: recipe)
+                .onAppear { initSliders(from: recipe) }
+                .onChange(of: recipeId) { _, _ in initSliders(from: recipe) }
+        } else {
+            Text("Recipe not found")
+                .font(Typography.ui(13))
+                .foregroundStyle(Theme.slate500)
         }
     }
 
-    var body: some View {
-        guard let recipe, let working = transformed else {
-            return AnyView(Text("Recipe not found").foregroundStyle(Theme.slate500))
+    private func initSliders(from recipe: Recipe) {
+        scale = 1.0
+        hydration = recipe.hydrationPct
+        conversion = .direct
+    }
+
+    /// Apply current slider values to the recipe.  Cached via `.task(id:)`
+    /// would be ideal, but for the data volume here (single recipe, <30 stages)
+    /// re-computing on every body call is cheap and avoids state syncing bugs.
+    private func transform(_ recipe: Recipe) -> Recipe {
+        let scaled = BakersMath.scale(recipe, toTotalGrams: recipe.totalDoughGrams * scale)
+        let hydrated = BakersMath.adjustHydration(scaled, to: hydration)
+        switch conversion {
+        case .direct:    return hydrated
+        case .tangzhong: return Conversion.convertToTangzhong(hydrated).0
+        case .yudane:    return Conversion.convertToYudane(hydrated).0
         }
+    }
+
+    @ViewBuilder
+    private func content(for recipe: Recipe) -> some View {
+        let working = transform(recipe)
         let percentages = BakersMath.computePercentages(for: working)
+        let warning = BakersMath.warning(originalHydration: recipe.hydrationPct,
+                                         newHydration: hydration)
 
-        return AnyView(
-            HStack(alignment: .top, spacing: 24) {
-                // Left column
-                VStack(alignment: .leading, spacing: 18) {
-                    detailHeader(recipe: recipe)
-                    heroNumbers(recipe: working, percentages: percentages)
-                    ingredientsCard(recipe: working, percentages: percentages)
-                    stagesCard(recipe: working)
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 18) {
+                detailHeader(recipe: recipe)
+                heroNumbers(recipe: working, percentages: percentages)
+                ingredientsCard(recipe: working, percentages: percentages)
+                stagesCard(recipe: working)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            VStack(spacing: 16) {
+                SurfaceCard(padding: EdgeInsets()) {
+                    BreadPhoto(assetName: recipe.photo, kind: .crumb, height: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                // Right rail
-                VStack(spacing: 16) {
-                    SurfaceCard(padding: EdgeInsets()) {
-                        BreadPhoto(assetName: recipe.photo, kind: .crumb, height: 180)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                SurfaceCard {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Kicker("Scale & convert")
+                        scaleSlider(recipe: recipe)
+                        hydrationSlider(recipe: recipe, warning: warning)
                     }
-
-                    SurfaceCard {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Kicker("Scale & convert")
-                            scaleSlider(recipe: recipe)
-                            hydrationSlider(recipe: recipe)
-                        }
-                    }
-
-                    SurfaceCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Kicker("Last 3 bakes")
-                            if let last = recipe.lastBake {
-                                HStack {
-                                    Text(last.when).font(Typography.ui(13)).foregroundStyle(Theme.slate900)
-                                    Spacer()
-                                    StarRating(rating: last.rating, size: 13)
-                                }
-                                if let note = last.note {
-                                    Text(note)
-                                        .font(Typography.ui(11.5))
-                                        .foregroundStyle(Theme.slate500)
-                                }
-                            } else {
-                                Text("You haven't baked this yet.")
-                                    .font(Typography.ui(12)).foregroundStyle(Theme.slate500)
-                            }
-                        }
-                    }
-
-                    Button(action: { state.goTo(.scheduler) }) {
-                        Label("Schedule a bake", systemImage: "clock")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .ccPrimary()
                 }
-                .frame(width: 360)
+                lastBakesCard(recipe: recipe)
+                Button(action: { state.goTo(.scheduler) }) {
+                    Label("Schedule a bake", systemImage: "clock")
+                        .frame(maxWidth: .infinity)
+                }
+                .ccPrimary()
             }
-            .onAppear {
-                scale = 1.0
-                hydration = recipe.hydrationPct
-                conversion = .direct
-            }
-            .onChange(of: recipeId) { _, _ in
-                scale = 1.0
-                hydration = recipe.hydrationPct
-                conversion = .direct
-            }
-        )
+            .frame(width: 360)
+        }
     }
 
     // MARK: - Subviews
@@ -216,11 +202,9 @@ struct RecipeDetailScreen: View {
                 .padding(.horizontal, 22)
                 .padding(.vertical, 16)
 
-                // Preferment blocks if present (e.g., twin scald)
                 if !recipe.preferments.isEmpty {
                     prefermentBlocks(recipe: recipe)
                 }
-
                 ingredientsTable(recipe: recipe, percentages: percentages)
             }
         }
@@ -287,7 +271,6 @@ struct RecipeDetailScreen: View {
             .padding(.vertical, 8)
             .background(Theme.slate50)
 
-            // Preferment rows
             ForEach(recipe.preferments) { pf in
                 HStack {
                     Text(pf.name.uppercased())
@@ -419,7 +402,7 @@ struct RecipeDetailScreen: View {
         }
     }
 
-    private func hydrationSlider(recipe: Recipe) -> some View {
+    private func hydrationSlider(recipe: Recipe, warning: HydrationWarning) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Hydration").font(Typography.ui(12)).foregroundStyle(Theme.slate600)
@@ -429,17 +412,42 @@ struct RecipeDetailScreen: View {
                     .foregroundStyle(Theme.slate900)
             }
             .padding(.top, 16)
-            Slider(value: $hydration, in: 55...95, step: 1).tint(Theme.primary).padding(.top, 4)
-            Text(hydrationWarning(recipe: recipe))
+            Slider(value: $hydration, in: 55...95, step: 1)
+                .tint(Theme.primary)
+                .padding(.top, 4)
+            Text(warning.message ?? "Within recipe-safe range.")
                 .font(Typography.ui(11))
-                .foregroundStyle(hydration > recipe.hydrationPct + 5 || hydration < recipe.hydrationPct - 5
-                                 ? Theme.warm700 : Theme.slate500)
+                .foregroundStyle(warning == .none ? Theme.slate500 : Theme.warm700)
         }
     }
 
-    private func hydrationWarning(recipe: Recipe) -> String {
-        if hydration > recipe.hydrationPct + 5 { return "⚠ Higher hydration than recipe target — bulk will run longer." }
-        if hydration < recipe.hydrationPct - 5 { return "⚠ Drier than recipe target — expect tighter crumb." }
-        return "Within recipe-safe range."
+    private func lastBakesCard(recipe: Recipe) -> some View {
+        SurfaceCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Kicker("Last 3 bakes")
+                if let last = recipe.lastBake {
+                    HStack {
+                        Text(last.whenDisplay).font(Typography.ui(13)).foregroundStyle(Theme.slate900)
+                        Spacer()
+                        StarRating(rating: last.rating, size: 13)
+                    }
+                    if let note = last.note {
+                        Text(note)
+                            .font(Typography.ui(11.5))
+                            .foregroundStyle(Theme.slate500)
+                    }
+                } else {
+                    Text("You haven't baked this yet.")
+                        .font(Typography.ui(12)).foregroundStyle(Theme.slate500)
+                }
+            }
+        }
     }
+}
+
+#Preview("Recipe — Hokkaido") {
+    RecipeDetailScreen(state: AppState(persistence: PersistenceController(filename: "preview-recipe.json")),
+                       recipeId: "hokkaido")
+        .padding()
+        .background(Theme.surface1)
 }

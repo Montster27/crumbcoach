@@ -39,8 +39,6 @@ targets:
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
         UIDeviceFamily:
           - 2
         UIRequiredDeviceCapabilities:
@@ -51,3 +49,17 @@ targets:
         TARGETED_DEVICE_FAMILY: "2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  CrumbcoachTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: CrumbcoachTests
+    dependencies:
+      - target: Crumbcoach
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crumbcoach.app.tests
+        TARGETED_DEVICE_FAMILY: "2"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Crumbcoach.app/Crumbcoach"

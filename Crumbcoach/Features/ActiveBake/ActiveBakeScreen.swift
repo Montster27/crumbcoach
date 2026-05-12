@@ -1,18 +1,28 @@
 import SwiftUI
 
 // Active bake screen — recipe card + Live Activity preview on the left,
-// current stage + timeline on the right.  Mirrors screen-bake.jsx.
+// current stage + timeline on the right. Stage clock times are computed from
+// `bake.startedAt` plus cumulative durations, not hardcoded.
 
 struct ActiveBakeScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
     @State private var proofOvenOpen: Bool = false
     @State private var proofOvenActive: Bool = false
     @State private var proofOvenTempC: Double = 26
 
+    @ViewBuilder
     var body: some View {
-        guard let bake = state.activeBake, let recipe = state.recipe(bake.recipeId) else {
-            return AnyView(Text("No active bake").foregroundStyle(Theme.slate500))
+        if let bake = state.activeBake, let recipe = state.recipe(bake.recipeId) {
+            content(bake: bake, recipe: recipe)
+        } else {
+            Text("No active bake")
+                .font(Typography.ui(13))
+                .foregroundStyle(Theme.slate500)
         }
+    }
+
+    @ViewBuilder
+    private func content(bake: ActiveBake, recipe: Recipe) -> some View {
         let stage = recipe.stages[bake.currentStageIndex]
         let baseDur = stage.durationMin
         let adjustedDur = proofOvenActive
@@ -20,24 +30,20 @@ struct ActiveBakeScreen: View {
             : baseDur
         let saved = baseDur - adjustedDur
 
-        return AnyView(
-            HStack(alignment: .top, spacing: 24) {
-                // LEFT
-                VStack(spacing: 16) {
-                    recipeHeaderCard(bake: bake, recipe: recipe)
-                    liveActivityCard(bake: bake, recipe: recipe, stage: stage)
-                }
-                .frame(width: 360)
-
-                // RIGHT
-                VStack(spacing: 16) {
-                    currentStageCard(bake: bake, recipe: recipe, stage: stage,
-                                      adjustedDur: adjustedDur, baseDur: baseDur, saved: saved)
-                    timelineCard(bake: bake, recipe: recipe)
-                }
-                .frame(maxWidth: .infinity)
+        HStack(alignment: .top, spacing: 24) {
+            VStack(spacing: 16) {
+                recipeHeaderCard(bake: bake, recipe: recipe)
+                liveActivityCard(bake: bake, recipe: recipe, stage: stage)
             }
-        )
+            .frame(width: 360)
+
+            VStack(spacing: 16) {
+                currentStageCard(bake: bake, recipe: recipe, stage: stage,
+                                  adjustedDur: adjustedDur, baseDur: baseDur, saved: saved)
+                timelineCard(bake: bake, recipe: recipe)
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
 
     // MARK: Recipe header card
@@ -150,7 +156,6 @@ struct ActiveBakeScreen: View {
                                   adjustedDur: Int, baseDur: Int, saved: Int) -> some View {
         SurfaceCard(padding: EdgeInsets()) {
             VStack(alignment: .leading, spacing: 0) {
-                // Header gradient
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 6) {
@@ -177,9 +182,7 @@ struct ActiveBakeScreen: View {
                     HStack(spacing: 8) {
                         ForEach(0..<bake.totalFolds, id: \.self) { i in
                             FoldChip(index: i + 1, done: i < bake.foldsDone, current: i == bake.foldsDone)
-                                .onTapGesture {
-                                    state.activeBake?.foldsDone = i + 1
-                                }
+                                .onTapGesture { state.markFold(i + 1) }
                         }
                     }
                     .padding(.top, 18)
@@ -191,13 +194,8 @@ struct ActiveBakeScreen: View {
                                    startPoint: .top, endPoint: .bottom)
                 )
 
-                // Action bar
                 HStack(spacing: 10) {
-                    Button {
-                        if let b = state.activeBake {
-                            state.activeBake?.foldsDone = min(b.totalFolds, b.foldsDone + 1)
-                        }
-                    } label: {
+                    Button { state.incrementFold() } label: {
                         Label("Mark fold \(bake.foldsDone + 1) done", systemImage: "checkmark")
                     }.ccPrimary()
 
@@ -229,7 +227,6 @@ struct ActiveBakeScreen: View {
                     proofOvenPanel(stage: stage, adjustedDur: adjustedDur, baseDur: baseDur, saved: saved)
                 }
 
-                // Adaptive note
                 HStack(spacing: 10) {
                     CCIconView(icon: .sparkle, size: 15, color: Theme.accent)
                     Text("In your kitchen at \(Int(bake.kitchenTempC))°C, this dough has averaged 4h 45m bulk in your last 5 bakes — 30 min longer than the recipe baseline.")
@@ -251,7 +248,7 @@ struct ActiveBakeScreen: View {
                     Text("Proofing oven · hold \(stage.kind.rawValue) at a steady temp")
                         .font(Typography.display(18, weight: .medium))
                         .foregroundStyle(Theme.slate900)
-                    Text("Kitchen is 22.1°C. Holding at \(Int(proofOvenTempC))°C shortens this stage to \(CCFormat.duration(adjustedDur)) (saves \(CCFormat.duration(saved))). Recipe baseline \(CCFormat.duration(baseDur)).")
+                    Text("Kitchen is \(String(format: "%.1f", state.kitchenTempC))°C. Holding at \(Int(proofOvenTempC))°C shortens this stage to \(CCFormat.duration(adjustedDur)) (saves \(CCFormat.duration(saved))). Recipe baseline \(CCFormat.duration(baseDur)).")
                         .font(Typography.ui(12.5))
                         .foregroundStyle(Theme.slate700)
                 }
@@ -307,17 +304,20 @@ struct ActiveBakeScreen: View {
     // MARK: Timeline card
 
     private func timelineCard(bake: ActiveBake, recipe: Recipe) -> some View {
-        let stageTimes = computeStageTimes(recipe: recipe)
+        let starts = stageStartTimes(bake: bake, recipe: recipe)
         let totalPhotos = bake.stagePhotos.values.reduce(0) { $0 + $1.count }
         return SurfaceCard(padding: EdgeInsets()) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Kicker("Timeline")
-                        Text("18h end-to-end · ")
+                        Text("\(CCFormat.endToEndHours(recipe.stages.reduce(0) { $0 + $1.durationMin })) · ")
                             .font(Typography.ui(11)).foregroundStyle(Theme.slate500)
-                        + Text("\(totalPhotos)").font(Typography.mono(11, weight: .semibold)).foregroundStyle(Theme.slate700)
-                        + Text(" photos this bake").font(Typography.ui(11)).foregroundStyle(Theme.slate500)
+                        + Text("\(totalPhotos)")
+                            .font(Typography.mono(11, weight: .semibold))
+                            .foregroundStyle(Theme.slate700)
+                        + Text(" photos this bake")
+                            .font(Typography.ui(11)).foregroundStyle(Theme.slate500)
                     }
                     Spacer()
                     Button("View grid →") { }.ccGhost(compact: true)
@@ -327,41 +327,31 @@ struct ActiveBakeScreen: View {
 
                 ForEach(Array(recipe.stages.enumerated()), id: \.offset) { idx, stage in
                     let status = bake.history.first(where: { $0.stageIndex == idx })?.status ?? .pending
-                    let isActive = status == .active
                     timelineRow(idx: idx, stage: stage, status: status,
-                                startMin: stageTimes[idx].start,
-                                isActive: isActive,
-                                bake: bake)
+                                startTime: starts[idx], bake: bake)
                 }
                 .padding(.bottom, 12)
             }
         }
     }
 
-    private func computeStageTimes(recipe: Recipe) -> [(start: Int, end: Int)] {
-        var cursor = 0
-        return recipe.stages.map { s in
-            let start = cursor
-            cursor += s.durationMin
-            return (start, cursor)
+    /// Each stage's start time is `bake.startedAt + sum(durations of earlier stages)`.
+    /// No more hardcoded 4:12 PM baseline — derives entirely from `bake.startedAt`.
+    private func stageStartTimes(bake: ActiveBake, recipe: Recipe) -> [Date] {
+        var times: [Date] = []
+        var cursor = bake.startedAt
+        for stage in recipe.stages {
+            times.append(cursor)
+            cursor = Calendar.current.date(byAdding: .minute, value: stage.durationMin, to: cursor) ?? cursor
         }
+        return times
     }
 
-    private func formatClockOffset(_ minutes: Int, baseHour: Int = 16, baseMinute: Int = 12) -> String {
-        let total = baseHour * 60 + baseMinute + minutes
-        let day = total >= 24 * 60 ? "Sun " : ""
-        let t = total % (24 * 60)
-        let h = t / 60
-        let m = t % 60
-        let hh = h == 0 ? 12 : (h > 12 ? h - 12 : h)
-        let ampm = h >= 12 ? "PM" : "AM"
-        return "\(day)\(hh):\(String(format: "%02d", m)) \(ampm)"
-    }
-
-    private func timelineRow(idx: Int, stage: Stage, status: StepStatus, startMin: Int,
-                              isActive: Bool, bake: ActiveBake) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Text(formatClockOffset(startMin))
+    private func timelineRow(idx: Int, stage: Stage, status: StepStatus,
+                              startTime: Date, bake: ActiveBake) -> some View {
+        let isActive = status == .active
+        return HStack(alignment: .top, spacing: 14) {
+            Text(CCFormat.clockShort.string(from: startTime))
                 .font(Typography.mono(12))
                 .foregroundStyle(Theme.slate500)
                 .frame(width: 100, alignment: .leading)
@@ -420,7 +410,9 @@ struct ActiveBakeScreen: View {
         .padding(.horizontal, 22)
         .padding(.vertical, 12)
         .background(isActive ? Theme.primaryTint : .clear)
-        .overlay(alignment: .top) { idx == 0 ? AnyView(EmptyView()) : AnyView(Rectangle().fill(Theme.border1).frame(height: 1)) }
+        .overlay(alignment: .top) {
+            if idx > 0 { Rectangle().fill(Theme.border1).frame(height: 1) }
+        }
     }
 }
 
@@ -473,4 +465,10 @@ private struct TimelineDot: View {
                 .frame(width: 22, height: 22)
         }
     }
+}
+
+#Preview("Active Bake") {
+    ActiveBakeScreen(state: AppState(persistence: PersistenceController(filename: "preview-bake.json")))
+        .padding()
+        .background(Theme.surface1)
 }

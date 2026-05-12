@@ -95,15 +95,14 @@ enum Scheduler {
             ))
             cursor = start
         }
-        let steps = revSteps.reversed().map { $0 }
 
         return Schedule(
             recipeId: recipe.id,
-            startTime: cursor,   // earliest start
+            startTime: cursor,                   // earliest start
             endTime: target,
             kitchenTempC: params.kitchenTempC,
             starterId: nil,
-            steps: steps
+            steps: Array(revSteps.reversed())    // chronological order
         )
     }
 

@@ -4,7 +4,7 @@ import SwiftUI
 // status + feeding log.  Mirrors StarterScreen in screen-rest.jsx.
 
 struct StarterScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
     @State private var selectedId: String = "ruby"
     @State private var range: String = "12h"
 
@@ -316,4 +316,11 @@ private struct RiseChart: View {
             }
         }
     }
+}
+
+#Preview("Starter") {
+    StarterScreen(state: AppState(persistence: PersistenceController(filename: "preview-starter.json")))
+        .padding()
+        .background(Theme.surface1)
+        .frame(width: 1100, height: 800)
 }

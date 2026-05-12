@@ -9,6 +9,10 @@ enum SampleRecipes {
         country, baguette, focaccia, shokupan, ciabatta, rugbrod, brioche, bagel, hokkaido,
     ]
 
+    private static func daysAgo(_ n: Int) -> Date {
+        Calendar.current.date(byAdding: .day, value: -n, to: Date()) ?? Date()
+    }
+
     // MARK: Country Sourdough — flagship sourdough, hero of the prototype
     static let country = Recipe(
         id: "country",
@@ -39,7 +43,7 @@ enum SampleRecipes {
             Stage(kind: .coldRetard,  durationMin: 720, temperatureC: 4,  note: "Overnight in fridge"),
             Stage(kind: .bake,        durationMin: 50,  temperatureC: 250, note: "Dutch oven, 20 lid on / 30 lid off"),
         ],
-        lastBake: Recipe.LastBake(rating: 5, when: "3 days ago",
+        lastBake: Recipe.LastBake(rating: 5, bakedAt: daysAgo(3),
                                   note: "Best crumb yet — bulk extended to 5h15m")
     )
 
@@ -103,7 +107,7 @@ enum SampleRecipes {
             Stage(kind: .finalProof, durationMin: 120, temperatureC: 24, note: "Come to room temp, dimple"),
             Stage(kind: .bake,       durationMin: 25,  temperatureC: 230, note: "Olive oil + flaky salt"),
         ],
-        lastBake: Recipe.LastBake(rating: 4, when: "2 weeks ago", note: nil)
+        lastBake: Recipe.LastBake(rating: 4, bakedAt: daysAgo(14), note: nil)
     )
 
     // MARK: Tangzhong Shokupan
@@ -149,7 +153,7 @@ enum SampleRecipes {
             Stage(kind: .finalProof,    durationMin: 75,  temperatureC: 28,  note: "85% of pan height"),
             Stage(kind: .bake,          durationMin: 35,  temperatureC: 180, note: "Cover for last 10 if browning fast"),
         ],
-        lastBake: Recipe.LastBake(rating: 5, when: "1 week ago", note: nil)
+        lastBake: Recipe.LastBake(rating: 5, bakedAt: daysAgo(7), note: nil)
     )
 
     // MARK: High-Hydration Ciabatta — linked from Foodgeek
@@ -211,7 +215,7 @@ enum SampleRecipes {
             Stage(kind: .finalProof,  durationMin: 240, temperatureC: 22, note: "Until cracks form"),
             Stage(kind: .bake,        durationMin: 90,  temperatureC: 180, note: "Long, low and slow"),
         ],
-        lastBake: Recipe.LastBake(rating: 4, when: "3 weeks ago", note: nil)
+        lastBake: Recipe.LastBake(rating: 4, bakedAt: daysAgo(21), note: nil)
     )
 
     // MARK: Butter Brioche
@@ -275,7 +279,7 @@ enum SampleRecipes {
             Stage(kind: .coldRetard,  durationMin: 720, temperatureC: 4,  note: "Overnight in fridge"),
             Stage(kind: .bake,        durationMin: 22,  temperatureC: 245, note: "Boil 30s/side, then bake"),
         ],
-        lastBake: Recipe.LastBake(rating: 4, when: "1 month ago", note: nil)
+        lastBake: Recipe.LastBake(rating: 4, bakedAt: daysAgo(30), note: nil)
     )
 
     // MARK: Hokkaido Milk Bread — twin-scald (yudane + tangzhong)

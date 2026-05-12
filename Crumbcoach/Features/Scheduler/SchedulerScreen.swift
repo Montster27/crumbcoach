@@ -5,7 +5,7 @@ import SwiftUI
 // from the core engine.
 
 struct SchedulerScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
 
     enum Mode { case reverse, forward }
     @State private var mode: Mode = .reverse
@@ -362,4 +362,11 @@ struct ToggleRow: View {
         }
         .padding(.vertical, 10)
     }
+}
+
+#Preview("Scheduler") {
+    SchedulerScreen(state: AppState(persistence: PersistenceController(filename: "preview-scheduler.json")))
+        .padding()
+        .background(Theme.surface1)
+        .frame(width: 1100, height: 800)
 }

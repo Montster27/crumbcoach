@@ -124,7 +124,23 @@ struct Recipe: Identifiable, Codable, Hashable {
 
     struct LastBake: Codable, Hashable {
         var rating: Int      // 1...5
-        var when: String     // "3 days ago"
+        var bakedAt: Date
         var note: String?
+
+        /// "Today" / "3 days ago" / "2 weeks ago" display string.
+        var whenDisplay: String {
+            let now = Date()
+            let cal = Calendar.current
+            let days = cal.dateComponents([.day], from: bakedAt, to: now).day ?? 0
+            if days < 1 { return "Today" }
+            if days == 1 { return "Yesterday" }
+            if days < 7 { return "\(days) days ago" }
+            if days < 31 {
+                let w = days / 7
+                return w == 1 ? "1 week ago" : "\(w) weeks ago"
+            }
+            let m = days / 30
+            return m == 1 ? "1 month ago" : "\(m) months ago"
+        }
     }
 }

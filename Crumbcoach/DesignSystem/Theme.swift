@@ -81,33 +81,36 @@ extension Color {
 }
 
 // MARK: - Typography
+//
+// Custom fonts are available if bundled (Instrument Serif for display, Geist
+// for UI, Geist Mono for numerics). Otherwise we fall back to the system
+// equivalents. The availability check runs once per family — `UIFont(name:)`
+// allocates each call, and we'd otherwise hit it on every label render.
 
 enum Typography {
-    // Instrument Serif for display, Geist for UI, Geist Mono for numerics.
-    // System fonts as fallbacks — the app will gracefully use SF Pro if custom
-    // fonts aren't bundled.
     static let displayName = "Instrument Serif"
     static let uiName      = "Geist"
     static let monoName    = "Geist Mono"
 
+    private static let displayAvailable: Bool = UIFont(name: displayName, size: 16) != nil
+    private static let uiAvailable: Bool      = UIFont(name: uiName, size: 16) != nil
+    private static let monoAvailable: Bool    = UIFont(name: monoName, size: 16) != nil
+
     static func display(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        if let _ = UIFont(name: displayName, size: size) {
-            return Font.custom(displayName, size: size).weight(weight)
-        }
-        return Font.system(size: size, weight: weight, design: .serif)
+        displayAvailable
+            ? Font.custom(displayName, size: size).weight(weight)
+            : Font.system(size: size, weight: weight, design: .serif)
     }
 
     static func ui(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        if let _ = UIFont(name: uiName, size: size) {
-            return Font.custom(uiName, size: size).weight(weight)
-        }
-        return Font.system(size: size, weight: weight, design: .default)
+        uiAvailable
+            ? Font.custom(uiName, size: size).weight(weight)
+            : Font.system(size: size, weight: weight, design: .default)
     }
 
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        if let _ = UIFont(name: monoName, size: size) {
-            return Font.custom(monoName, size: size).weight(weight)
-        }
-        return Font.system(size: size, weight: weight, design: .monospaced)
+        monoAvailable
+            ? Font.custom(monoName, size: size).weight(weight)
+            : Font.system(size: size, weight: weight, design: .monospaced)
     }
 }

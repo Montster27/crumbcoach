@@ -5,11 +5,34 @@ import Foundation
 
 enum Conversion {
 
+    // MARK: Proportional helpers
+    //
+    // When we remove flour or liquid for a preferment, the amount has to come
+    // off ALL of the main-dough flour (or liquid) proportionally — not just
+    // the first ingredient.  This is what makes Country Sourdough (80% bread
+    // + 20% whole wheat) behave correctly when converted.
+
+    private static func subtractProportionally(_ grams: Double,
+                                                from ingredients: inout [Ingredient],
+                                                where category: IngredientCategory,
+                                                totalFlour: Double) {
+        let matching = ingredients.indices.filter { ingredients[$0].category == category }
+        let totalMatching = matching.reduce(0.0) { $0 + ingredients[$1].weightGrams }
+        guard totalMatching > 0 else { return }
+        for idx in matching {
+            let share = ingredients[idx].weightGrams / totalMatching
+            let take = grams * share
+            ingredients[idx].weightGrams = max(0, ingredients[idx].weightGrams - take)
+            if totalFlour > 0 {
+                ingredients[idx].bakersPct = (ingredients[idx].weightGrams / totalFlour) * 100.0
+            }
+        }
+    }
+
     // MARK: Tangzhong (cooked roux pre-ferment)
     //
-    // Take 5–8% of the main-dough flour, combine with liquid at a 1:5 flour:liquid
-    // ratio, cook to ~65°C until pudding-thick. Add to main dough.
-    // Boosts hydration capacity; recipe should be at >=65% target hydration.
+    // Take 5–8% of the main-dough flour, combine with liquid at a 1:5 flour:
+    // liquid ratio, cook to ~65°C until pudding-thick. Add to main dough.
 
     static func convertToTangzhong(_ recipe: Recipe,
                                    flourPctOfTotal: Double = 6,
@@ -21,37 +44,31 @@ enum Conversion {
         let tFlour = totalFlour * (flourPctOfTotal / 100.0)
         let tLiquid = tFlour * ratio
 
-        // Choose the liquid for the tangzhong — prefer milk if present, else water.
+        // Use whichever liquid is dominant in the main dough for the tangzhong.
         let mainLiquids = recipe.ingredients.filter { $0.category == .liquid }
         let liquidName = mainLiquids.first(where: { $0.name.lowercased().contains("milk") })?.name
             ?? mainLiquids.first?.name
             ?? "Water"
-
-        // Subtract from main-dough flour + liquid
-        let primaryFlour = recipe.ingredients.first(where: { $0.category == .flour })?.name ?? "Bread flour"
+        let primaryFlour = recipe.ingredients.first(where: { $0.category == .flour })?.name
+            ?? "Bread flour"
 
         var out = recipe
+        subtractProportionally(tFlour,  from: &out.ingredients, where: .flour,  totalFlour: totalFlour)
+        subtractProportionally(tLiquid, from: &out.ingredients, where: .liquid, totalFlour: totalFlour)
 
-        // Find main-dough flour and liquid, subtract amounts
-        if let idx = out.ingredients.firstIndex(where: { $0.category == .flour }) {
-            out.ingredients[idx].weightGrams = max(0, out.ingredients[idx].weightGrams - tFlour)
-            out.ingredients[idx].bakersPct = (out.ingredients[idx].weightGrams / totalFlour) * 100.0
-        }
-        if let idx = out.ingredients.firstIndex(where: { $0.category == .liquid }) {
-            out.ingredients[idx].weightGrams = max(0, out.ingredients[idx].weightGrams - tLiquid)
-            out.ingredients[idx].bakersPct = (out.ingredients[idx].weightGrams / totalFlour) * 100.0
-        }
-
-        // Add the tangzhong preferment
         let pf = Preferment(
             id: "tangzhong",
             name: "Tangzhong",
             technique: "1:\(Int(ratio)) cook to 65°C",
-            prep: "Whisk \(primaryFlour) + \(liquidName.lowercased()) in a saucepan over medium heat to 65°C until pudding-thick. Cool to room temp before adding.",
+            prep: "Whisk \(primaryFlour.lowercased()) + \(liquidName.lowercased()) in a saucepan over medium heat to 65°C until pudding-thick. Cool to room temp before adding.",
             flourPct: flourPctOfTotal,
             ingredients: [
-                Ingredient(name: primaryFlour, category: .flour,  weightGrams: round(tFlour),  bakersPct: flourPctOfTotal, section: "tangzhong"),
-                Ingredient(name: liquidName,   category: .liquid, weightGrams: round(tLiquid), bakersPct: flourPctOfTotal * ratio, section: "tangzhong"),
+                Ingredient(name: primaryFlour, category: .flour,
+                           weightGrams: round(tFlour),  bakersPct: flourPctOfTotal,
+                           section: "tangzhong"),
+                Ingredient(name: liquidName,   category: .liquid,
+                           weightGrams: round(tLiquid), bakersPct: flourPctOfTotal * ratio,
+                           section: "tangzhong"),
             ]
         )
         if let idx = out.preferments.firstIndex(where: { $0.id == "tangzhong" }) {
@@ -60,7 +77,6 @@ enum Conversion {
             out.preferments.append(pf)
         }
 
-        // Add a "Cook tangzhong" stage at the front if not already present
         if !out.stages.contains(where: { $0.kind == .cookTangzhong }) {
             out.stages.insert(
                 Stage(kind: .cookTangzhong, durationMin: 15, temperatureC: 65,
@@ -73,7 +89,6 @@ enum Conversion {
         let warning: String? = recipe.hydrationPct < 65
             ? "Recipe hydration is low — tangzhong is best at ≥65%. Consider raising hydration first."
             : nil
-
         return (out, warning)
     }
 
@@ -90,17 +105,12 @@ enum Conversion {
         let yFlour = totalFlour * (flourPctOfTotal / 100.0)
         let yWater = yFlour    // 1:1
 
-        let primaryFlour = recipe.ingredients.first(where: { $0.category == .flour })?.name ?? "Bread flour"
+        let primaryFlour = recipe.ingredients.first(where: { $0.category == .flour })?.name
+            ?? "Bread flour"
 
         var out = recipe
-        if let idx = out.ingredients.firstIndex(where: { $0.category == .flour }) {
-            out.ingredients[idx].weightGrams = max(0, out.ingredients[idx].weightGrams - yFlour)
-            out.ingredients[idx].bakersPct = (out.ingredients[idx].weightGrams / totalFlour) * 100.0
-        }
-        if let idx = out.ingredients.firstIndex(where: { $0.category == .liquid }) {
-            out.ingredients[idx].weightGrams = max(0, out.ingredients[idx].weightGrams - yWater)
-            out.ingredients[idx].bakersPct = (out.ingredients[idx].weightGrams / totalFlour) * 100.0
-        }
+        subtractProportionally(yFlour, from: &out.ingredients, where: .flour,  totalFlour: totalFlour)
+        subtractProportionally(yWater, from: &out.ingredients, where: .liquid, totalFlour: totalFlour)
 
         let pf = Preferment(
             id: "yudane",
@@ -109,8 +119,12 @@ enum Conversion {
             prep: "Pour boiling water over flour, mix to a paste, cover, rest overnight (≥8h) in fridge.",
             flourPct: flourPctOfTotal,
             ingredients: [
-                Ingredient(name: primaryFlour,      category: .flour,  weightGrams: round(yFlour), bakersPct: flourPctOfTotal, section: "yudane"),
-                Ingredient(name: "Boiling water",   category: .liquid, weightGrams: round(yWater), bakersPct: flourPctOfTotal, section: "yudane"),
+                Ingredient(name: primaryFlour,    category: .flour,
+                           weightGrams: round(yFlour), bakersPct: flourPctOfTotal,
+                           section: "yudane"),
+                Ingredient(name: "Boiling water", category: .liquid,
+                           weightGrams: round(yWater), bakersPct: flourPctOfTotal,
+                           section: "yudane"),
             ]
         )
         if let idx = out.preferments.firstIndex(where: { $0.id == "yudane" }) {
@@ -126,7 +140,6 @@ enum Conversion {
                 at: 0
             )
         }
-
         return (out, nil)
     }
 
@@ -148,20 +161,13 @@ enum Conversion {
         let levainLiquid = levainTotal - levainFlour
 
         var out = recipe
-        // Remove all leaven entries (commercial yeast)
+        // Remove all commercial-yeast entries
         out.ingredients.removeAll { $0.category == .leaven }
 
-        // Subtract levain's flour + liquid from main dough
-        if let idx = out.ingredients.firstIndex(where: { $0.category == .flour }) {
-            out.ingredients[idx].weightGrams = max(0, out.ingredients[idx].weightGrams - levainFlour)
-            out.ingredients[idx].bakersPct = (out.ingredients[idx].weightGrams / totalFlour) * 100.0
-        }
-        if let idx = out.ingredients.firstIndex(where: { $0.category == .liquid }) {
-            out.ingredients[idx].weightGrams = max(0, out.ingredients[idx].weightGrams - levainLiquid)
-            out.ingredients[idx].bakersPct = (out.ingredients[idx].weightGrams / totalFlour) * 100.0
-        }
+        // Subtract levain's flour + liquid proportionally from the main dough
+        subtractProportionally(levainFlour,  from: &out.ingredients, where: .flour,  totalFlour: totalFlour)
+        subtractProportionally(levainLiquid, from: &out.ingredients, where: .liquid, totalFlour: totalFlour)
 
-        // Add the levain as a leaven ingredient (treated as the active leavening agent)
         out.ingredients.append(
             Ingredient(name: "Levain (\(Int(levainHydrationPct))% hyd.)",
                        category: .leaven,
@@ -172,7 +178,6 @@ enum Conversion {
         out.breadType = .sourdough
         out.leavenPct = levainPct
 
-        // Prepend a "Feed levain" stage
         if !out.stages.contains(where: { $0.kind == .feedLevain }) {
             out.stages.insert(
                 Stage(kind: .feedLevain, durationMin: 360, temperatureC: 24,

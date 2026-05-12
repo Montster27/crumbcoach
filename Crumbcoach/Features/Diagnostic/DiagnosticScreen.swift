@@ -5,7 +5,7 @@ import SwiftUI
 // annotations + feedback loop UX are real.
 
 struct DiagnosticScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
 
     enum DiagState { case idle, analyzing, result }
     enum Verdict   { case useful, notUseful, wrong }
@@ -41,8 +41,9 @@ struct DiagnosticScreen: View {
 
     private var photoPanel: some View {
         ZStack {
+            // The photo and the annotation overlay both fill this 4:3 ZStack,
+            // so SVG-style fractional positions land in the right pixels.
             BreadPhoto(assetName: "crumb_dense", kind: .crumb, height: 480)
-                .aspectRatio(4 / 3, contentMode: .fit)
 
             if diagState == .result {
                 AnnotationOverlay()
@@ -67,6 +68,7 @@ struct DiagnosticScreen: View {
             if diagState == .idle { idleOverlay }
             if diagState == .analyzing { analyzingOverlay }
         }
+        .aspectRatio(4 / 3, contentMode: .fit)
         .background(Theme.slate900, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.border1, lineWidth: 1)
@@ -75,12 +77,14 @@ struct DiagnosticScreen: View {
     }
 
     private var topLabel: some View {
-        Text("Country Sourdough · Crumb shot · Today 11:42 AM")
+        let timestamp = CCFormat.clockTime.string(from: Date())
+        return Text("Country Sourdough · Crumb shot · \(timestamp)")
             .font(Typography.ui(12, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Color.black.opacity(0.65), in: Capsule())
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().fill(Color.black.opacity(0.45)).blendMode(.multiply))
     }
 
     private var idleOverlay: some View {
@@ -170,19 +174,14 @@ struct DiagnosticScreen: View {
             VStack(spacing: 0) {
                 HStack(spacing: 18) {
                     Kicker("Context fed to model")
-                    HStack(spacing: 22) {
+                    HStack(spacing: 18) {
                         contextDatum("75%", "hydration")
-                        Text("·").foregroundStyle(Theme.slate300)
-                        Text("Bulk ").font(Typography.ui(12)).foregroundStyle(Theme.slate700)
-                        + Text("4h 15m").font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate900)
-                        + Text(" @ ").font(Typography.ui(12)).foregroundStyle(Theme.slate700)
-                        + Text("22°C").font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate900)
-                        Text("·").foregroundStyle(Theme.slate300)
-                        Text("Levain peaked ").font(Typography.ui(12)).foregroundStyle(Theme.slate700)
-                        + Text("−2h").font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate900)
-                        Text("·").foregroundStyle(Theme.slate300)
-                        Text("Cold retard ").font(Typography.ui(12)).foregroundStyle(Theme.slate700)
-                        + Text("12h").font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate900)
+                        contextSeparator
+                        contextDatum("4h 15m", "bulk @ 22°C")
+                        contextSeparator
+                        contextDatum("−2h", "levain peaked")
+                        contextSeparator
+                        contextDatum("12h", "cold retard")
                     }
                     Spacer()
                     Button("Edit context →") { }.ccGhost(compact: true)
@@ -210,8 +209,14 @@ struct DiagnosticScreen: View {
     }
 
     private func contextDatum(_ value: String, _ label: String) -> some View {
-        Text(value).font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate900)
-        + Text(" \(label)").font(Typography.ui(12)).foregroundStyle(Theme.slate700)
+        HStack(spacing: 4) {
+            Text(value).font(Typography.mono(12, weight: .semibold)).foregroundStyle(Theme.slate900)
+            Text(label).font(Typography.ui(12)).foregroundStyle(Theme.slate700)
+        }
+    }
+
+    private var contextSeparator: some View {
+        Text("·").font(Typography.ui(12)).foregroundStyle(Theme.slate300)
     }
 
     // MARK: Side panels
@@ -423,7 +428,8 @@ private struct BlurChip: ButtonStyle {
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Color.black.opacity(0.65), in: Capsule())
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().fill(Color.black.opacity(0.4)).blendMode(.multiply))
     }
 }
 
@@ -432,31 +438,35 @@ private struct AnnotationOverlay: View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
+            // Marker sizes scale with the photo width so circles stay visually
+            // consistent at any iPad size.
+            let markerSize = max(20, w * 0.045)
+
             ZStack {
                 // Region 1 — tight base
                 Ellipse().stroke(Color(hex: 0xFDE68A),
                                   style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                    .frame(width: 240, height: 56)
+                    .frame(width: w * 0.55, height: h * 0.14)
                     .position(x: w * 0.45, y: h * 0.78)
-                Circle().fill(Color(hex: 0xFBBF24)).frame(width: 22, height: 22)
+                Circle().fill(Color(hex: 0xFBBF24)).frame(width: markerSize, height: markerSize)
                     .overlay(Text("1").font(Typography.ui(11, weight: .bold)).foregroundStyle(Color(hex: 0x1F2937)))
                     .position(x: w * 0.15, y: h * 0.80)
 
                 // Region 2 — tunneling
                 Ellipse().stroke(Color(hex: 0xFCA5A5),
                                   style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                    .frame(width: 110, height: 44)
+                    .frame(width: w * 0.27, height: h * 0.13)
                     .position(x: w * 0.60, y: h * 0.26)
-                Circle().fill(Color(hex: 0xF87171)).frame(width: 22, height: 22)
+                Circle().fill(Color(hex: 0xF87171)).frame(width: markerSize, height: markerSize)
                     .overlay(Text("2").font(Typography.ui(11, weight: .bold)).foregroundStyle(.white))
                     .position(x: w * 0.74, y: h * 0.20)
 
                 // Region 3 — uneven holes mid
                 Circle().stroke(Color(hex: 0xA7F3D0),
                                  style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                    .frame(width: 68, height: 68)
+                    .frame(width: w * 0.17, height: w * 0.17)
                     .position(x: w * 0.34, y: h * 0.50)
-                Circle().fill(Color(hex: 0x10B981)).frame(width: 22, height: 22)
+                Circle().fill(Color(hex: 0x10B981)).frame(width: markerSize, height: markerSize)
                     .overlay(Text("3").font(Typography.ui(11, weight: .bold)).foregroundStyle(.white))
                     .position(x: w * 0.43, y: h * 0.41)
             }
@@ -485,4 +495,11 @@ private struct FeedbackButton: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+#Preview("Diagnostic") {
+    DiagnosticScreen(state: AppState(persistence: PersistenceController(filename: "preview-diag.json")))
+        .padding()
+        .background(Theme.surface1)
+        .frame(width: 1100, height: 800)
 }

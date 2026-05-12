@@ -17,6 +17,22 @@ struct BakersPercentages: Hashable {
     var prefermentFlourPct: Double
 }
 
+/// Severity-graded message about a recipe transformation. Bakers want to know
+/// when a change pushes the dough outside what the original recipe assumed.
+enum HydrationWarning: Equatable {
+    case none
+    case higher  // bulk will run longer
+    case lower   // expect tighter crumb
+
+    var message: String? {
+        switch self {
+        case .none:   return nil
+        case .higher: return "Higher hydration than recipe target — bulk will run longer."
+        case .lower:  return "Drier than recipe target — expect tighter crumb."
+        }
+    }
+}
+
 enum BakersMath {
     /// Compute the baker's percentages for a recipe by summing across the main
     /// ingredients and any preferment sub-ingredients.
@@ -82,16 +98,14 @@ enum BakersMath {
         return out
     }
 
-    /// Adjust hydration: re-scale the liquid ingredients (excluding preferments)
-    /// so the total liquid-to-flour ratio matches `newHydrationPct`.
-    /// Returns the new recipe and a warning string when the change is large.
-    static func adjustHydration(_ recipe: Recipe, to newHydrationPct: Double) -> (Recipe, warning: String?) {
+    /// Adjust hydration: re-scale the main-dough liquid ingredients so the
+    /// total liquid-to-flour ratio matches `newHydrationPct`. Preferment
+    /// ratios are fixed (changing them turns a tangzhong into something else).
+    static func adjustHydration(_ recipe: Recipe, to newHydrationPct: Double) -> Recipe {
         let percentages = computePercentages(for: recipe)
         let totalFlour = percentages.totalFlourGrams
-        guard totalFlour > 0 else { return (recipe, nil) }
+        guard totalFlour > 0 else { return recipe }
 
-        // Hydration counts all liquid, including preferments. We adjust only
-        // the main-dough liquid; preferment ratios stay fixed.
         let prefermentLiquid = recipe.preferments
             .flatMap(\.ingredients)
             .filter { $0.category == .liquid }
@@ -101,11 +115,11 @@ enum BakersMath {
         let currentMainLiquid = recipe.ingredients
             .filter { $0.category == .liquid }
             .reduce(0.0) { $0 + $1.weightGrams }
-        guard currentMainLiquid > 0 else { return (recipe, "No main-dough liquid to adjust.") }
+        guard currentMainLiquid > 0 else { return recipe }
         let factor = targetMainLiquid / currentMainLiquid
 
         var out = recipe
-        out.ingredients = out.ingredients.map { ing -> Ingredient in
+        out.ingredients = out.ingredients.map { ing in
             var i = ing
             if ing.category == .liquid {
                 i.weightGrams = round(ing.weightGrams * factor)
@@ -116,13 +130,15 @@ enum BakersMath {
         out.hydrationPct = newHydrationPct
         out.totalDoughGrams = out.ingredients.reduce(0.0) { $0 + $1.weightGrams }
             + out.preferments.flatMap(\.ingredients).reduce(0.0) { $0 + $1.weightGrams }
+        return out
+    }
 
-        let delta = newHydrationPct - recipe.hydrationPct
-        if delta > 5 {
-            return (out, "Higher hydration than recipe target — bulk will run longer.")
-        } else if delta < -5 {
-            return (out, "Drier than recipe target — expect tighter crumb.")
-        }
-        return (out, nil)
+    /// Severity of a hydration change vs. the recipe's stated target.
+    /// ±5 pp is the threshold above which we surface a warning to the baker.
+    static func warning(originalHydration: Double, newHydration: Double) -> HydrationWarning {
+        let delta = newHydration - originalHydration
+        if delta > 5 { return .higher }
+        if delta < -5 { return .lower }
+        return .none
     }
 }

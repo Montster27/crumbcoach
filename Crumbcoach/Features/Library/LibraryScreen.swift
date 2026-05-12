@@ -3,7 +3,7 @@ import SwiftUI
 // Recipe library — search + filter chips + 3-column grid of recipe cards.
 
 struct LibraryScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
     @State private var search: String = ""
     @State private var filter: String = "all"
 
@@ -188,7 +188,7 @@ struct RecipeCard: View {
                                 Spacer()
                                 HStack(spacing: 4) {
                                     StarRating(rating: last.rating, size: 9)
-                                    Text(last.when)
+                                    Text(last.whenDisplay)
                                         .font(Typography.ui(11))
                                         .foregroundStyle(.white.opacity(0.7))
                                 }
@@ -274,4 +274,11 @@ struct SourceBadge: View {
                 .background(Theme.warm700, in: Capsule())
         }
     }
+}
+
+#Preview("Library") {
+    LibraryScreen(state: AppState(persistence: PersistenceController(filename: "preview-library.json")))
+        .padding()
+        .background(Theme.surface1)
+        .frame(width: 1100, height: 800)
 }

@@ -9,17 +9,21 @@
 /* Begin PBXBuildFile section */
 		037EF6A9B5B4AFBB4FECF392 /* StarterPrediction.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE38966AAAF15DBEF6D93361 /* StarterPrediction.swift */; };
 		0D8330963F70C9CA06446937 /* RecipeDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52D7800F8DDE5524E3D5943D /* RecipeDetailScreen.swift */; };
+		1D29118D392D560144109C38 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60EEF263CAE95A86BAAE75C1 /* PersistenceTests.swift */; };
 		2EC4EC4F2714E4B3B60C1C00 /* Conversion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CB14F2B4A89A459CF7ED8DC /* Conversion.swift */; };
 		3328C759F4306F49C4E44C13 /* JournalScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE80E56D89A1C08B0E4DB9E7 /* JournalScreen.swift */; };
 		3FD69D6A13B6FAAB12E1B39C /* CrumbcoachApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D67797B309AB5716BDBB7E22 /* CrumbcoachApp.swift */; };
 		41EE5A57F7DDD051F17D654B /* Starter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5B8139F08247C7D5DFE544 /* Starter.swift */; };
 		4F92B4D589AADDDC233E230C /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 193BC6AF16053E4A67146A86 /* AppState.swift */; };
-		645C0B9472FF7767E03D699F /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 357823197AD8A2C199E9F677 /* Preview Assets.xcassets */; };
+		613313CA77375BEB4D42C095 /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 888E5D2A0CC7FD4E9555DDE8 /* PersistenceController.swift */; };
+		68D64DC243A2D50C0A17AB2D /* PersistedState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DA65AA0497EC61DB21DB2A6 /* PersistedState.swift */; };
 		6970C70A42B31690EB96EDBE /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 319F1EF1051F7EB951545157 /* Theme.swift */; };
 		742236CD071F9BDB875F67BD /* AppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F2C4FC02A311A9223971FB /* AppShell.swift */; };
 		792B0AAC549A89D1FAE7CF6C /* Bake.swift in Sources */ = {isa = PBXBuildFile; fileRef = E225841BCCF97C8AC2662141 /* Bake.swift */; };
 		8A8D4378721DE3443CFFED72 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 496AAC18197D58400866A346 /* Components.swift */; };
+		93FC0E7D02ED2E96D773620C /* SchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E777EE19984956678DCB6AE7 /* SchedulerTests.swift */; };
 		95824A8D94443374D773FC27 /* Recipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7973C90D419364D1D26A9A6C /* Recipe.swift */; };
+		AE2F6498DAE86579B1749102 /* BakersMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 115BD8C7F9CA09D5076A6891 /* BakersMathTests.swift */; };
 		B1609C48C7D244F4B3DFFCAB /* SampleStarters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 318F6EB27A5D475EACDBA1A0 /* SampleStarters.swift */; };
 		BB714908B319F9BF3B65C625 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0093B1B99EFC2C63FA59C8E /* Formatters.swift */; };
 		C562ED283896364907A790FD /* SchedulerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC3F76C5810B5277DF329D0 /* SchedulerScreen.swift */; };
@@ -32,26 +36,42 @@
 		E072E9383A9782AA911FBF6F /* Schedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFEB6E8ADB5A45446662086 /* Schedule.swift */; };
 		E3E3E28B7A3283264C6485E5 /* HomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9FC68B16F963F7B373C4DC /* HomeScreen.swift */; };
 		E6955EA3D981F37EFAAFC189 /* StarterScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB78BA9811297E2D3E46EA34 /* StarterScreen.swift */; };
+		EDEF190F68BCD4E5844C22B7 /* ConversionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E58AD3129B7032617FCC93C /* ConversionTests.swift */; };
 		F04976CC83D2B6D005F4E497 /* ActiveBakeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82F4176EEBA4B693D779AEF /* ActiveBakeScreen.swift */; };
 		FB2A070F1E20398F0ED330EE /* SampleRecipes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B44538C5C8869AA87C62C832 /* SampleRecipes.swift */; };
 		FD4CD93373FA4E9786D7B03C /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1FDB79FF075662288C4543 /* Analytics.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		64CBDAF374A36192C1B1E757 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 417DFCFA9D4DA64BC94407F1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3B5B1D2FACB9DB8529C951A5;
+			remoteInfo = Crumbcoach;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		0DA65AA0497EC61DB21DB2A6 /* PersistedState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistedState.swift; sourceTree = "<group>"; };
 		0F5B8139F08247C7D5DFE544 /* Starter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Starter.swift; sourceTree = "<group>"; };
+		115BD8C7F9CA09D5076A6891 /* BakersMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BakersMathTests.swift; sourceTree = "<group>"; };
 		193BC6AF16053E4A67146A86 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		1BFEB6E8ADB5A45446662086 /* Schedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schedule.swift; sourceTree = "<group>"; };
 		318F6EB27A5D475EACDBA1A0 /* SampleStarters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleStarters.swift; sourceTree = "<group>"; };
 		319F1EF1051F7EB951545157 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
-		357823197AD8A2C199E9F677 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		3E1FDB79FF075662288C4543 /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Analytics.swift; sourceTree = "<group>"; };
 		409E15054696084AC06E021A /* BakersPercentages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BakersPercentages.swift; sourceTree = "<group>"; };
 		496AAC18197D58400866A346 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		4DC3F76C5810B5277DF329D0 /* SchedulerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerScreen.swift; sourceTree = "<group>"; };
+		4E58AD3129B7032617FCC93C /* ConversionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionTests.swift; sourceTree = "<group>"; };
 		52D7800F8DDE5524E3D5943D /* RecipeDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeDetailScreen.swift; sourceTree = "<group>"; };
+		60EEF263CAE95A86BAAE75C1 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		770FFEA01C320945E9828CA4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		782A953BB1552920DE809133 /* Scheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler.swift; sourceTree = "<group>"; };
 		7973C90D419364D1D26A9A6C /* Recipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Recipe.swift; sourceTree = "<group>"; };
+		888E5D2A0CC7FD4E9555DDE8 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
+		891DCC53C6E95E5730F26B39 /* CrumbcoachTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CrumbcoachTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CB14F2B4A89A459CF7ED8DC /* Conversion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversion.swift; sourceTree = "<group>"; };
 		B44538C5C8869AA87C62C832 /* SampleRecipes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleRecipes.swift; sourceTree = "<group>"; };
 		B82F4176EEBA4B693D779AEF /* ActiveBakeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveBakeScreen.swift; sourceTree = "<group>"; };
@@ -63,6 +83,7 @@
 		DE38966AAAF15DBEF6D93361 /* StarterPrediction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StarterPrediction.swift; sourceTree = "<group>"; };
 		E05CD782B0C0C45ACA9EFA8F /* SampleJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleJournal.swift; sourceTree = "<group>"; };
 		E225841BCCF97C8AC2662141 /* Bake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bake.swift; sourceTree = "<group>"; };
+		E777EE19984956678DCB6AE7 /* SchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerTests.swift; sourceTree = "<group>"; };
 		E9C9E32A2B4588D2DB77F206 /* LibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryScreen.swift; sourceTree = "<group>"; };
 		F0093B1B99EFC2C63FA59C8E /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		F7E43398003F4E0301B7CEFD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -75,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				CFE915BAFFF4A726E0C4AE2A /* Crumbcoach.app */,
+				891DCC53C6E95E5730F26B39 /* CrumbcoachTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -117,6 +139,8 @@
 			isa = PBXGroup;
 			children = (
 				193BC6AF16053E4A67146A86 /* AppState.swift */,
+				0DA65AA0497EC61DB21DB2A6 /* PersistedState.swift */,
+				888E5D2A0CC7FD4E9555DDE8 /* PersistenceController.swift */,
 				E05CD782B0C0C45ACA9EFA8F /* SampleJournal.swift */,
 				B44538C5C8869AA87C62C832 /* SampleRecipes.swift */,
 				318F6EB27A5D475EACDBA1A0 /* SampleStarters.swift */,
@@ -124,12 +148,15 @@
 			path = Data;
 			sourceTree = "<group>";
 		};
-		5D6CD3076EC96FC11269EFF3 /* Preview Content */ = {
+		5502821CC647D99C50E268FB /* CrumbcoachTests */ = {
 			isa = PBXGroup;
 			children = (
-				357823197AD8A2C199E9F677 /* Preview Assets.xcassets */,
+				115BD8C7F9CA09D5076A6891 /* BakersMathTests.swift */,
+				4E58AD3129B7032617FCC93C /* ConversionTests.swift */,
+				60EEF263CAE95A86BAAE75C1 /* PersistenceTests.swift */,
+				E777EE19984956678DCB6AE7 /* SchedulerTests.swift */,
 			);
-			path = "Preview Content";
+			path = CrumbcoachTests;
 			sourceTree = "<group>";
 		};
 		6C85D91BCE7C7FAAB43DCAAB /* Library */ = {
@@ -205,6 +232,7 @@
 			isa = PBXGroup;
 			children = (
 				7B1C991F10009D41B739D18A /* Crumbcoach */,
+				5502821CC647D99C50E268FB /* CrumbcoachTests */,
 				1A2F399F3C3F721F11D9045F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -213,7 +241,6 @@
 			isa = PBXGroup;
 			children = (
 				770FFEA01C320945E9828CA4 /* Assets.xcassets */,
-				5D6CD3076EC96FC11269EFF3 /* Preview Content */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -264,6 +291,24 @@
 			productReference = CFE915BAFFF4A726E0C4AE2A /* Crumbcoach.app */;
 			productType = "com.apple.product-type.application";
 		};
+		CCA339B365BAFA56DB196154 /* CrumbcoachTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 68E7E940FBAA31621A83455B /* Build configuration list for PBXNativeTarget "CrumbcoachTests" */;
+			buildPhases = (
+				54F02E182FEC2B0064CFF906 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4D288119B828D2CEFAB1164B /* PBXTargetDependency */,
+			);
+			name = CrumbcoachTests;
+			packageProductDependencies = (
+			);
+			productName = CrumbcoachTests;
+			productReference = 891DCC53C6E95E5730F26B39 /* CrumbcoachTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -274,6 +319,10 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					3B5B1D2FACB9DB8529C951A5 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					CCA339B365BAFA56DB196154 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
@@ -294,6 +343,7 @@
 			projectRoot = "";
 			targets = (
 				3B5B1D2FACB9DB8529C951A5 /* Crumbcoach */,
+				CCA339B365BAFA56DB196154 /* CrumbcoachTests */,
 			);
 		};
 /* End PBXProject section */
@@ -304,13 +354,23 @@
 			buildActionMask = 2147483647;
 			files = (
 				D845576C6F2D80EA676DF369 /* Assets.xcassets in Resources */,
-				645C0B9472FF7767E03D699F /* Preview Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		54F02E182FEC2B0064CFF906 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE2F6498DAE86579B1749102 /* BakersMathTests.swift in Sources */,
+				EDEF190F68BCD4E5844C22B7 /* ConversionTests.swift in Sources */,
+				1D29118D392D560144109C38 /* PersistenceTests.swift in Sources */,
+				93FC0E7D02ED2E96D773620C /* SchedulerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F37E5520931CC7FCA71A11EC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -329,6 +389,8 @@
 				E3E3E28B7A3283264C6485E5 /* HomeScreen.swift in Sources */,
 				3328C759F4306F49C4E44C13 /* JournalScreen.swift in Sources */,
 				D41082E55DBB161849141A2E /* LibraryScreen.swift in Sources */,
+				68D64DC243A2D50C0A17AB2D /* PersistedState.swift in Sources */,
+				613313CA77375BEB4D42C095 /* PersistenceController.swift in Sources */,
 				95824A8D94443374D773FC27 /* Recipe.swift in Sources */,
 				0D8330963F70C9CA06446937 /* RecipeDetailScreen.swift in Sources */,
 				CC50B541B3073EF88145EC8D /* SampleJournal.swift in Sources */,
@@ -346,7 +408,32 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		4D288119B828D2CEFAB1164B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3B5B1D2FACB9DB8529C951A5 /* Crumbcoach */;
+			targetProxy = 64CBDAF374A36192C1B1E757 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		10CBA9B8CCCF19539BE97506 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Crumbcoach.app/Crumbcoach";
+			};
+			name = Release;
+		};
 		2FACB6BC78898DBACEBC08E5 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -500,6 +587,23 @@
 			};
 			name = Debug;
 		};
+		CB285311E7D4C2E180906D76 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.crumbcoach.app.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Crumbcoach.app/Crumbcoach";
+			};
+			name = Debug;
+		};
 		DD801D901DB081C346972A0F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -526,6 +630,15 @@
 			buildConfigurations = (
 				9F98B7794947B251757ABD6F /* Debug */,
 				DD801D901DB081C346972A0F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		68E7E940FBAA31621A83455B /* Build configuration list for PBXNativeTarget "CrumbcoachTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CB285311E7D4C2E180906D76 /* Debug */,
+				10CBA9B8CCCF19539BE97506 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -4,8 +4,24 @@ import SwiftUI
 // month-summary stats on the right rail.
 
 struct JournalScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
     @State private var filter: String = "All bakes"
+
+    private var filteredEntries: [JournalEntry] {
+        switch filter {
+        case "Country sourdough":
+            return state.journal.filter { $0.recipeId == "country" }
+        case "Last month":
+            let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+            return state.journal.filter { $0.bakedAt >= cutoff }
+        case "5-star only":
+            return state.journal.filter { $0.rating == 5 }
+        case "Underproofed":
+            return state.journal.filter { $0.diagnosis.lowercased().contains("underproof") }
+        default:
+            return state.journal
+        }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
@@ -13,7 +29,7 @@ struct JournalScreen: View {
             VStack(spacing: 16) {
                 filtersRow
                 trendCard
-                ForEach(state.journal) { entry in
+                ForEach(filteredEntries) { entry in
                     JournalCard(entry: entry, recipe: state.recipe(entry.recipeId))
                 }
             }
@@ -136,12 +152,13 @@ private struct JournalCard: View {
     var body: some View {
         SurfaceCard(padding: EdgeInsets()) {
             HStack(alignment: .top, spacing: 0) {
-                BreadPhoto(assetName: entry.photoAsset, kind: .crumb, height: 96)
-                    .frame(width: 120, height: 96)
+                BreadPhoto(assetName: entry.photoAsset, kind: .crumb, height: 120)
+                    .frame(width: 120)
+                    .frame(maxHeight: .infinity)
                     .clipped()
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text(entry.date).font(Typography.mono(11.5)).foregroundStyle(Theme.slate500)
+                        Text(entry.dateDisplay).font(Typography.mono(11.5)).foregroundStyle(Theme.slate500)
                         Text("·").foregroundStyle(Theme.slate500)
                         Text(recipe?.title ?? entry.recipeId)
                             .font(Typography.display(16, weight: .medium))
@@ -250,4 +267,11 @@ private struct BulkTimeChart: View {
             }
         }
     }
+}
+
+#Preview("Journal") {
+    JournalScreen(state: AppState(persistence: PersistenceController(filename: "preview-journal.json")))
+        .padding()
+        .background(Theme.surface1)
+        .frame(width: 1100, height: 800)
 }

@@ -4,12 +4,32 @@ import SwiftUI
 // Mirrors app.jsx layout, scaled for iPad landscape.
 
 struct AppShell: View {
-    @Bindable var state: AppState
+    var state: AppState
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// Sidebar width scales with Dynamic Type so Larger Text users don't get
+    /// truncated nav labels.  Base 232, growing up to ~290 at .accessibility5.
+    private var sidebarWidth: CGFloat {
+        let base: CGFloat = 232
+        let scale: CGFloat
+        switch typeSize {
+        case .xSmall, .small, .medium: scale = 1.0
+        case .large: scale = 1.0
+        case .xLarge: scale = 1.04
+        case .xxLarge: scale = 1.08
+        case .xxxLarge: scale = 1.12
+        case .accessibility1: scale = 1.18
+        case .accessibility2: scale = 1.22
+        case .accessibility3, .accessibility4, .accessibility5: scale = 1.25
+        @unknown default: scale = 1.0
+        }
+        return base * scale
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             Sidebar(state: state)
-                .frame(width: 232)
+                .frame(width: sidebarWidth)
                 .background(Color.white)
                 .overlay(alignment: .trailing) {
                     Rectangle().fill(Theme.border1).frame(width: 1)
@@ -61,7 +81,7 @@ struct AppShell: View {
 // MARK: - Sidebar
 
 struct Sidebar: View {
-    @Bindable var state: AppState
+    var state: AppState
 
     struct Item: Identifiable {
         let id: String
@@ -213,7 +233,7 @@ private struct KitchenCard: View {
 // MARK: - Header
 
 struct AppHeader: View {
-    @Bindable var state: AppState
+    var state: AppState
     @State private var now: Date = .now
     private let timer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 

@@ -4,7 +4,7 @@ import SwiftUI
 // diagnose) + insights strip.  Mirrors screen-home.jsx.
 
 struct HomeScreen: View {
-    @Bindable var state: AppState
+    var state: AppState
 
     var body: some View {
         VStack(spacing: 20) {
@@ -28,7 +28,7 @@ struct HomeScreen: View {
 // MARK: - Active bake banner
 
 private struct ActiveBakeBanner: View {
-    @Bindable var state: AppState
+    var state: AppState
     let bake: ActiveBake
     let recipe: Recipe
 
@@ -115,7 +115,7 @@ private struct ActiveBakeBanner: View {
 // MARK: - Starter card
 
 private struct StarterCard: View {
-    @Bindable var state: AppState
+    var state: AppState
 
     var body: some View {
         Button(action: { state.goTo(.starter) }) {
@@ -180,7 +180,7 @@ private struct StarterCard: View {
 // MARK: - Up next card
 
 private struct UpNextCard: View {
-    @Bindable var state: AppState
+    var state: AppState
     @State private var selectedTime = "10:00 AM"
     private let options = ["10:00 AM", "Noon", "Custom"]
 
@@ -226,7 +226,7 @@ private struct UpNextCard: View {
 // MARK: - Diagnose prompt card
 
 private struct DiagnosePromptCard: View {
-    @Bindable var state: AppState
+    var state: AppState
 
     var body: some View {
         Button(action: { state.goTo(.diagnose) }) {
@@ -263,7 +263,7 @@ private struct DiagnosePromptCard: View {
 // MARK: - Insights strip
 
 private struct InsightsStrip: View {
-    @Bindable var state: AppState
+    var state: AppState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -324,4 +324,11 @@ private struct InsightTile: View {
         case .temp:  return .thermo
         }
     }
+}
+
+#Preview("Home") {
+    HomeScreen(state: AppState(persistence: PersistenceController(filename: "preview-home.json")))
+        .padding()
+        .background(Theme.surface1)
+        .frame(width: 1100, height: 800)
 }
