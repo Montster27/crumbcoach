@@ -50,7 +50,6 @@ struct RecipeDetailScreen: View {
                     activity.isEligibleForHandoff = true
                     activity.isEligibleForSearch = true
                     activity.isEligibleForPrediction = true
-                    activity.webpageURL = staged.webpageURL
                 }
                 .sheet(isPresented: $editorOpen) {
                     RecipeEditorScreen(state: state, editingRecipeId: recipeId)

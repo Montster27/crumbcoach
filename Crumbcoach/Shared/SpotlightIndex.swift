@@ -77,10 +77,11 @@ enum SpotlightIndex {
         activity.isEligibleForHandoff = true
         activity.isEligibleForSearch = true
         activity.isEligibleForPrediction = true
-        // `webpageURL` makes the activity show in browser history /
-        // Universal Links when those are wired (Phase F). For now it
-        // doubles as the deep-link the share extension recognizes.
-        activity.webpageURL = URL(string: "crumbcoach://recipe/\(recipe.id)")
+        // No `webpageURL` — NSUserActivity requires http/https there and
+        // throws on a custom scheme. Deep-link routing reads `userInfo`
+        // via `recipeId(from:)` already; the custom scheme lives in
+        // AppState.handleIncomingURL. Re-introduce a webpageURL only
+        // when Universal Links are wired (Phase F).
         return activity
     }
 
