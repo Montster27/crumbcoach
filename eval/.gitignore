@@ -1,0 +1,6 @@
+# Per-recipe JSON outputs contain verbatim source-page text
+# (King Arthur, Perfect Loaf, etc.) and Haiku response artifacts —
+# keep local, don't commit.
+output/
+__pycache__/
+*.pyc
