@@ -1,4 +1,4 @@
-# CrumbCoach — Implementation Plan
+# GeekBread — Implementation Plan
 
 Staged roadmap from the current TestFlight-ready prototype to a fully
 functional app. Each stage is self-contained: a future Claude session can
@@ -12,23 +12,23 @@ needing context from the previous stages (beyond reading this preamble).
 ### Project state
 
 - iPad-only SwiftUI app, iOS 17+, landscape, full-screen (no Split View).
-- XcodeGen project (`project.yml` → `Crumbcoach.xcodeproj`). **Regenerate
+- XcodeGen project (`project.yml` → `GeekBread.xcodeproj`). **Regenerate
   the project after editing `project.yml` or adding/removing files:**
   ```bash
   xcodegen generate
   ```
-- Bundle id: `com.monty.crumbcoach.app` (this repo, signed under Monty's
+- Bundle id: `com.monty.geekbread.app` (this repo, signed under Monty's
   personal team `9C4LVC9DR6`). Forks change `DEVELOPMENT_TEAM` + every
-  `com.monty.crumbcoach.app*` reference in `project.yml` (main + widget
+  `com.monty.geekbread.app*` reference in `project.yml` (main + widget
   + share + tests targets, plus the iCloud container in `entitlements`).
-- Repo: <https://github.com/Montster27/crumbcoach>.
+- Repo: <https://github.com/Montster27/geekbread>.
 - Currently in TestFlight as `GeekBread` 0.1.0.
 
 ### Key files (memorize these paths)
 
 ```
-Crumbcoach/
-├── CrumbcoachApp.swift              # @main, scenePhase persist hook
+GeekBread/
+├── GeekBreadApp.swift              # @main, scenePhase persist hook
 ├── Models/                          # Codable structs — Recipe, Stage,
 │                                    # Ingredient, Preferment, Starter,
 │                                    # Schedule, ActiveBake, JournalEntry,
@@ -67,7 +67,7 @@ Crumbcoach/
     └── Journal/JournalScreen.swift
 ```
 
-Tests live in `CrumbcoachTests/` and cover the four `Core/` modules.
+Tests live in `GeekBreadTests/` and cover the four `Core/` modules.
 
 ### Conventions
 
@@ -94,12 +94,12 @@ Tests live in `CrumbcoachTests/` and cover the four `Core/` modules.
 xcodegen generate
 
 # Typecheck app (works around the broken simulator runtime on dev Macs)
-find Crumbcoach -name "*.swift" -print0 | xargs -0 swiftc -typecheck \
+find GeekBread -name "*.swift" -print0 | xargs -0 swiftc -typecheck \
   -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
   -target arm64-apple-ios17.0 -swift-version 5
 
 # Tests (requires working simulator)
-xcodebuild test -project Crumbcoach.xcodeproj -scheme Crumbcoach \
+xcodebuild test -project GeekBread.xcodeproj -scheme GeekBread \
   -destination 'platform=iOS Simulator,name=iPad Pro (12.9-inch)'
 ```
 
@@ -128,18 +128,18 @@ the `ActiveBake.stagePhotos` model and the diagnostic flow.
 
 ### Where the stubs live today
 
-- [`HomeScreen.swift`](Crumbcoach/Features/Home/HomeScreen.swift) — the
+- [`HomeScreen.swift`](GeekBread/Features/Home/HomeScreen.swift) — the
   "Take photo" button on the Diagnose card. Routes to `state.goTo(.diagnose)`
   today; should also seed the diagnostic state with a photo.
-- [`ActiveBakeScreen.swift`](Crumbcoach/Features/ActiveBake/ActiveBakeScreen.swift) —
+- [`ActiveBakeScreen.swift`](GeekBread/Features/ActiveBake/ActiveBakeScreen.swift) —
   `Button { } label: { Label("Add photo", systemImage: "camera") }` in the
   current-stage action bar. Also the dashed `Button(action: {})` in each
   timeline row.
-- [`DiagnosticScreen.swift`](Crumbcoach/Features/Diagnostic/DiagnosticScreen.swift) —
+- [`DiagnosticScreen.swift`](GeekBread/Features/Diagnostic/DiagnosticScreen.swift) —
   the giant camera button in `idleOverlay` currently just calls
   `startAnalysis()` which is a timer. Should open a picker / camera first,
   load the chosen image, then start (stubbed) analysis on it.
-- [`StarterScreen.swift`](Crumbcoach/Features/Starter/StarterScreen.swift) —
+- [`StarterScreen.swift`](GeekBread/Features/Starter/StarterScreen.swift) —
   "Photo · 6:14 PM today" badge implies a starter photo flow; needs an
   "Add photo" affordance.
 
@@ -147,12 +147,12 @@ the `ActiveBake.stagePhotos` model and the diagnostic flow.
 
 1. **Info.plist** — add usage descriptions in `project.yml`:
    ```yaml
-   NSCameraUsageDescription: "Photograph your crumb, dough, and starter so CrumbCoach can analyze and log them."
+   NSCameraUsageDescription: "Photograph your crumb, dough, and starter so GeekBread can analyze and log them."
    NSPhotoLibraryUsageDescription: "Attach photos from your library to bakes and diagnostics."
    ```
    Then `xcodegen generate`.
 
-2. **New file:** `Crumbcoach/Shared/PhotoPicker.swift`
+2. **New file:** `GeekBread/Shared/PhotoPicker.swift`
    - SwiftUI wrapper around `PHPickerViewController` for library picking.
    - SwiftUI wrapper around `UIImagePickerController` with `.camera`
      source for live capture (PHPicker doesn't support camera).
@@ -160,7 +160,7 @@ the `ActiveBake.stagePhotos` model and the diagnostic flow.
      presented as a `.sheet`.
 
 3. **Persist images.** UIImage isn't Codable. Two options:
-   - Save as JPEG bytes to `Application Support/Crumbcoach/photos/<uuid>.jpg`,
+   - Save as JPEG bytes to `Application Support/GeekBread/photos/<uuid>.jpg`,
      store the relative path string in `BakePhoto.assetName`.
    - Or embed base64 in JSON (simpler, fine for the data volume here).
 
@@ -169,7 +169,7 @@ the `ActiveBake.stagePhotos` model and the diagnostic flow.
    helpers `savePhoto(_ image: UIImage) -> String` (returns filename) and
    `loadPhoto(named: String) -> UIImage?`.
 
-4. **Update `BreadPhoto`** in [`Components.swift`](Crumbcoach/DesignSystem/Components.swift)
+4. **Update `BreadPhoto`** in [`Components.swift`](GeekBread/DesignSystem/Components.swift)
    to try loading from the photos directory before falling back to bundled
    asset name, before falling back to gradient.
 
@@ -208,7 +208,7 @@ the `ActiveBake.stagePhotos` model and the diagnostic flow.
 
 What landed and what later stages can lean on:
 
-- `Crumbcoach/Shared/PhotoPicker.swift` — `PhotoPicker(source:onPick:)` and a
+- `GeekBread/Shared/PhotoPicker.swift` — `PhotoPicker(source:onPick:)` and a
   `View.photoPicker(isPresented:onPick:) -> UIImage` modifier that shows a
   confirmation dialog (Camera / Library) and then the sheet. Camera falls
   through to the library if the device has no camera (e.g. Simulator).
@@ -259,7 +259,7 @@ out.
    notifications; the system shows a permission dialog automatically. The
    string is courtesy.)
 
-2. **New file:** `Crumbcoach/Shared/NotificationManager.swift`
+2. **New file:** `GeekBread/Shared/NotificationManager.swift`
    - Singleton wrapping `UNUserNotificationCenter`.
    - `requestPermissionIfNeeded() async -> Bool`.
    - `scheduleBakeReminders(for schedule: Schedule, recipe: Recipe)` — for
@@ -303,7 +303,7 @@ out.
 
 What landed and what Stage 3 can lean on:
 
-- `Crumbcoach/Shared/NotificationManager.swift` — `NotificationManager.shared`
+- `GeekBread/Shared/NotificationManager.swift` — `NotificationManager.shared`
   singleton wrapping `UNUserNotificationCenter`. Public API:
   - `authorizationStatus() async -> UNAuthorizationStatus`
   - `requestPermissionIfNeeded() async -> Bool` (idempotent; reads system
@@ -330,7 +330,7 @@ What landed and what Stage 3 can lean on:
     on first call, refreshes cached status, schedules if granted.
   - `cancelAllBakeReminders()`
   - `refreshNotificationAuthStatus() async`
-- `CrumbcoachApp.init` touches `NotificationManager.shared` so the
+- `GeekBreadApp.init` touches `NotificationManager.shared` so the
   delegate is registered before scenes connect (avoids dropping a
   cold-launch tap). `scenePhase == .active` refreshes the cached auth
   status; `bakeReminderTapped` routes to `.activeBake`.
@@ -381,7 +381,7 @@ Sourdough.
 
 ### Current state
 
-[`SchedulerScreen.swift`](Crumbcoach/Features/Scheduler/SchedulerScreen.swift)'s
+[`SchedulerScreen.swift`](GeekBread/Features/Scheduler/SchedulerScreen.swift)'s
 "Confirm & start" button currently just navigates: `state.goTo(.activeBake)`.
 The active bake on the receiving end is always the seeded sample.
 
@@ -692,7 +692,7 @@ What landed:
 - **`OnboardingScreen`** (`Features/Onboarding/OnboardingScreen.swift`)
   — single-card layout with brand mark, name field, "Get started"
   primary button, and a "Load demo data" secondary link. Presented as
-  `fullScreenCover` from `CrumbcoachApp.body` while
+  `fullScreenCover` from `GeekBreadApp.body` while
   `!state.hasOnboarded`. Submit calls `state.completeOnboarding(name:)`
   which flips the flag and dismisses.
 - **`SettingsScreen`** (`Features/Settings/SettingsScreen.swift`)
@@ -978,7 +978,7 @@ Pragmatic v1 picked MetricKit over Sentry / TelemetryDeck:
 
 What landed:
 
-- `Crumbcoach/Shared/TelemetryManager.swift` — `NSObject` singleton
+- `GeekBread/Shared/TelemetryManager.swift` — `NSObject` singleton
   conforming to `MXMetricManagerSubscriber`. Public surface:
   - `setEnabled(_:)` — idempotent subscribe / unsubscribe. Disabling
     also deletes every stored payload (toggle off is a real reset,
@@ -989,7 +989,7 @@ What landed:
     suitable for the iOS share sheet. Nil when no payloads exist.
   - `didReceive(_:)` for both `MXMetricPayload` and
     `MXDiagnosticPayload` — saves the raw `jsonRepresentation()` into
-    `<App Support>/Crumbcoach/telemetry/<kind>-<ts>-<uuid>.json`,
+    `<App Support>/GeekBread/telemetry/<kind>-<ts>-<uuid>.json`,
     logs counts via `os.Logger`.
 - `PersistedState.telemetryEnabled: Bool = true` — opt-out model per
   spec. Default ensures fresh installs subscribe and pre-Stage-9
@@ -1004,7 +1004,7 @@ What landed:
   `ShareSheet` (presented as `.sheet`). The Share button is disabled
   until at least one payload has actually arrived from MetricKit
   (which is daily, not real-time — the helper copy says so).
-- `CrumbcoachApp.init` no longer touches telemetry directly;
+- `GeekBreadApp.init` no longer touches telemetry directly;
   `AppState.init` is the single place the subscription gets applied,
   which dodges the "read `@State` from `App.init`" SwiftUI footgun.
 
@@ -1326,7 +1326,7 @@ Wraps a polish pass over the whole app — the difference between
 
 ### Stage 14 — completion notes
 
-**Haptics** — new `Crumbcoach/Shared/Haptics.swift` is the single
+**Haptics** — new `GeekBread/Shared/Haptics.swift` is the single
 choke point. Four static methods cover every surface that wants
 feedback:
 
@@ -1399,7 +1399,7 @@ Considerations:
     com.apple.developer.icloud-services:
       - CloudKit
     com.apple.developer.icloud-container-identifiers:
-      - iCloud.com.crumbcoach.app
+      - iCloud.com.geekbread.app
   ```
 - Photo blobs need a CloudKit asset path, not the local
   `Application Support/photos/` directory.
@@ -1418,7 +1418,7 @@ CloudKit container effort.
 
 **Implementation:**
 
-- `Crumbcoach/Shared/CloudSyncManager.swift` — `@MainActor`
+- `GeekBread/Shared/CloudSyncManager.swift` — `@MainActor`
   `ObservableObject` singleton.
   - `isAvailable: Bool` — checks `FileManager.default.ubiquityIdentityToken`.
   - `setEnabled(_:)` — mirror of the Settings toggle. When disabling,
@@ -1450,7 +1450,7 @@ CloudKit container effort.
   - `init` bounces `CloudSyncManager.shared.setEnabled(initial)`
     onto MainActor so the manager's internal flag matches the
     persisted preference from launch onward.
-- `CrumbcoachApp.scenePhase == .active` fires a `syncWithCloud()`
+- `GeekBreadApp.scenePhase == .active` fires a `syncWithCloud()`
   task alongside the existing notification auth refresh. Cheap
   no-op when disabled or iCloud is signed out.
 - `SettingsScreen.cloudSyncCard` — new section with toggle (disabled
@@ -1458,7 +1458,7 @@ CloudKit container effort.
   `state.syncWithCloud()`, and a live status line bound to
   `cloudSync.status` via `@ObservedObject`.
 - `project.yml` gains an `entitlements:` block for the bundle id —
-  `iCloud.com.crumbcoach.app` for documents + ubiquity. A team
+  `iCloud.com.geekbread.app` for documents + ubiquity. A team
   building this needs to enable iCloud (Documents) on the App ID in
   Apple Developer + provision the container. `CloudSyncManager`
   gracefully no-ops at runtime if the container isn't reachable, so
@@ -1467,7 +1467,7 @@ CloudKit container effort.
 **Known gaps deliberately left for later:**
 
 - Photos aren't synced. Each device keeps its own
-  `<App Support>/Crumbcoach/photos/` directory; the JSON references
+  `<App Support>/GeekBread/photos/` directory; the JSON references
   filenames that resolve to gradient placeholders on the other iPad.
   Mirroring photos as CKAssets or as additional files in the same
   ubiquity container is the obvious extension — natural Stage 18
@@ -1498,7 +1498,7 @@ Post-Stage 15 follow-ups landed (post-review):
   running, so two saves spawned 0.5s apart can't race their own
   `removeItem` + `copyItem` on the cloud URL. NSFileCoordinator
   handles cross-process; the chain handles in-app ordering.
-- iCloud container identifier moved to `iCloud.com.monty.crumbcoach.app`
+- iCloud container identifier moved to `iCloud.com.monty.geekbread.app`
   to match the personal-team signing prefix (see preamble). Fork
   to a different team changes this alongside the bundle ids.
 
@@ -1510,7 +1510,7 @@ count, and time-to-next-action. The static preview in
 
 Includes a Dynamic Island compact variant for iPhones (still relevant
 even though the main app is iPad-only, since notifications can target
-the user's phone if they ever bring CrumbCoach there).
+the user's phone if they ever bring GeekBread there).
 
 ### Stage 16 — completion notes
 
@@ -1518,7 +1518,7 @@ The Live Activity landed with a full widget-extension target. Lock
 Screen + StandBy view on iPad, Dynamic Island compact + expanded for
 when an iPhone visitor lands.
 
-**Shared contract:** `Crumbcoach/Shared/ActiveBakeAttributes.swift`
+**Shared contract:** `GeekBread/Shared/ActiveBakeAttributes.swift`
 defines the `ActivityAttributes` type plus its `ContentState`. The
 file is listed in both targets' sources in `project.yml`, so the
 main app and the widget extension agree on the wire shape without a
@@ -1526,9 +1526,9 @@ framework / package boundary. Static fields (recipe title, started-
 at) freeze at start; dynamic fields (stage name, folds, minutes-to-
 next-action, bake-out-at, isComplete) re-render on every update.
 
-**Widget extension target** (`CrumbcoachWidgets/`):
+**Widget extension target** (`GeekBreadWidgets/`):
 
-- `CrumbcoachWidgetsBundle.swift` — `@main WidgetBundle` that vends
+- `GeekBreadWidgetsBundle.swift` — `@main WidgetBundle` that vends
   `ActiveBakeLiveActivity`. Stage 19 (Home Screen / Lock Screen
   complications) will add neighbours here.
 - `ActiveBakeLiveActivity.swift` — `Widget` with an
@@ -1545,15 +1545,15 @@ next-action, bake-out-at, isComplete) re-render on every update.
     "Done") so the widget doesn't need any conditional rendering on
     the main app's side.
 - `project.yml` widget entries: `type: app-extension`, bundle id
-  `com.crumbcoach.app.widgets`, sources include the shared
+  `com.geekbread.app.widgets`, sources include the shared
   attributes file, Info.plist carries the
   `com.apple.widgetkit-extension` extension point.
 - Main app target embeds the widget via `dependencies: [{ target:
-  CrumbcoachWidgets, embed: true }]` and gains
+  GeekBreadWidgets, embed: true }]` and gains
   `NSSupportsLiveActivities: true` in Info.plist (required for
   `Activity<>.request()` to succeed).
 
-**Manager:** `Crumbcoach/Shared/LiveActivityManager.swift` is the
+**Manager:** `GeekBread/Shared/LiveActivityManager.swift` is the
 main-app singleton.
 
 - `start(recipeTitle:startedAt:state:)` — gated on
@@ -1631,7 +1631,7 @@ extraction; no server required.
 On-device JSON-LD importer + an "Import recipe" affordance on the
 editor's URL row. Network round-trip stays in-app; no backend.
 
-**Importer** (`Crumbcoach/Shared/RecipeImporter.swift`):
+**Importer** (`GeekBread/Shared/RecipeImporter.swift`):
 
 - `RecipeImporter.import(from:session:) async throws -> ImportedRecipe`
   is the public entry point. Returns a draft `Recipe` + a list of
@@ -1778,7 +1778,7 @@ device-version gate, no inference cost. Handles the long tail of
 Sketch:
 
 ```swift
-// Crumbcoach/Shared/IngredientWeightTable.swift
+// GeekBread/Shared/IngredientWeightTable.swift
 enum IngredientWeightTable {
     /// (lowercased keyword, unit) → grams per unit.
     /// Source: King Arthur ingredient weights chart + standard
@@ -1945,7 +1945,7 @@ Two improvements bundled here — the volume-to-grams table AND
 instruction-time parsing. Together they close most of the "fill it
 in manually" gaps that the JSON-LD importer left behind.
 
-**Volume-to-grams lookup.** `Crumbcoach/Shared/IngredientWeightTable.swift`
+**Volume-to-grams lookup.** `GeekBread/Shared/IngredientWeightTable.swift`
 ships ~35 entries covering flours, liquids, salts, leavens,
 sweeteners, fats, and a few common misc rows (cocoa powder, dry
 milk). Each entry maps `(keyword, unit) → grams per unit`. Numbers
@@ -2060,7 +2060,7 @@ Apple Foundation Models fallback landed behind a strict opt-in
 toggle. Closes the gap where neither the regex nor the static
 weight table could pull a number out of a recipe row.
 
-**`Crumbcoach/Shared/AIRecipeAssist.swift`** — wraps the
+**`GeekBread/Shared/AIRecipeAssist.swift`** — wraps the
 `FoundationModels` framework. Two entry points symmetrical to the
 two warning categories the importer leaves behind:
 
@@ -2151,7 +2151,7 @@ field decode to off (Codable optional default). Mutator
 
 ### Stage 18 — Share & export
 
-- Share a recipe via deep link (`crumbcoach://recipe/<id>`) and
+- Share a recipe via deep link (`geekbread://recipe/<id>`) and
   Markdown.
 - Wire Journal's "Export to Markdown" to actually produce a `.md` or
   `.csv` file via the iOS share sheet.
@@ -2164,33 +2164,33 @@ All three sub-tasks landed. Share / export now works in both
 directions: recipes + journal flow out via the iOS share sheet, and
 Safari pages flow in via a dedicated share extension.
 
-**Markdown serializer** (`Crumbcoach/Shared/RecipeExporter.swift`):
+**Markdown serializer** (`GeekBread/Shared/RecipeExporter.swift`):
 
 - `markdown(for recipe:units:)` — title + metadata + per-preferment
   block + main-dough ingredients table + numbered stages, with a
-  trailing `crumbcoach://recipe/<id>` deep link footer so any
+  trailing `geekbread://recipe/<id>` deep link footer so any
   Markdown reader has a "tap to open" path back. Tables render in
   the user's chosen units (Stage 12).
 - `markdown(forJournal entries:recipeLookup:units:)` — headline
   stats (count, average rating, average kitchen temp) + one block
   per entry (rating with star glyphs, hydration, bulk, kitchen,
   diagnosis, freeform note).
-- `deepLink(for recipe:)` — canonical `crumbcoach://recipe/<id>`.
+- `deepLink(for recipe:)` — canonical `geekbread://recipe/<id>`.
 - `importDeepLink(sourceURL:)` — canonical
-  `crumbcoach://import?url=<encoded>` used by the share extension.
+  `geekbread://import?url=<encoded>` used by the share extension.
 
 **URL scheme + deep-link routing:**
 
-- `project.yml` registers `CFBundleURLTypes` with the `crumbcoach`
+- `project.yml` registers `CFBundleURLTypes` with the `geekbread`
   scheme on the main app's Info.plist.
 - `AppState.pendingImportURL: String?` is the transient hand-off
   slot (mirrors Stage 1's `pendingDiagnosticPhoto`).
 - `AppState.handleIncomingURL(_:)` parses two shapes:
-  - `crumbcoach://recipe/<id>` → opens the detail (404s gracefully
+  - `geekbread://recipe/<id>` → opens the detail (404s gracefully
     if the id isn't in the user's library).
-  - `crumbcoach://import?url=<encoded>` → stashes the URL,
+  - `geekbread://import?url=<encoded>` → stashes the URL,
     navigates to the library so the editor can pick it up.
-- `CrumbcoachApp` gains `.onOpenURL { appState.handleIncomingURL($0) }`.
+- `GeekBreadApp` gains `.onOpenURL { appState.handleIncomingURL($0) }`.
 - `LibraryScreen` watches `state.pendingImportURL` via `.onAppear`
   + `.onChange`, drains it into a local `editorImportSeed`, and
   presents the editor. The seed clears on `onDismiss` so a second
@@ -2214,22 +2214,22 @@ Safari pages flow in via a dedicated share extension.
   (Stage 7) still hides the right rail entirely, so this button
   only appears when there's something to export.
 
-**Shared helper:** `Crumbcoach/Shared/ShareActivitySheet.swift` is a
+**Shared helper:** `GeekBread/Shared/ShareActivitySheet.swift` is a
 single `UIActivityViewController` wrapper used by RecipeDetail,
 Journal, and the existing Stage 9 diagnostic share. The previous
 private copy in `SettingsScreen` was deleted in favor of this
 shared one.
 
-**Share extension** (`CrumbcoachShareExtension/`):
+**Share extension** (`GeekBreadShareExtension/`):
 
 - `ShareViewController.swift` — `UIViewController` that reads the
   shared URL from `extensionContext.inputItems` (handling both
   `UTType.url` and a plain-text URL fallback), encodes a
-  `crumbcoach://import?url=<encoded>` deep link, walks the
+  `geekbread://import?url=<encoded>` deep link, walks the
   responder chain to find `openURL:`, and calls it to hand control
   to the main app.
 - `project.yml` widget block: type `app-extension`, bundle id
-  `com.crumbcoach.app.share`. Info.plist declares:
+  `com.geekbread.app.share`. Info.plist declares:
   - `NSExtensionPointIdentifier: com.apple.share-services`
   - `NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController`
   - `NSExtensionAttributes.NSExtensionActivationRule` —
@@ -2237,14 +2237,14 @@ shared one.
     extension only surfaces in Safari's share sheet for a single
     URL (not arbitrary text or files).
 - Main app embeds it via `dependencies: [{ target:
-  CrumbcoachShareExtension, embed: true }]`.
+  GeekBreadShareExtension, embed: true }]`.
 
 **End-to-end flow** that now works:
 
 1. User reads a King Arthur Country Loaf in Safari.
-2. Taps Share → CrumbCoach.
+2. Taps Share → GeekBread.
 3. Share extension fires, encodes the URL, opens the main app via
-   `crumbcoach://import?url=https%3A%2F%2F…`.
+   `geekbread://import?url=https%3A%2F%2F…`.
 4. `onOpenURL` routes through `handleIncomingURL`, stashes the URL,
    navigates to the library.
 5. Library's `.onAppear`/`.onChange` drains the pending URL and
@@ -2268,7 +2268,7 @@ shared one.
   iOS 14 but isn't formally future-proof. If Apple ever locks this
   down, App Groups + a queued file the main app drains on launch
   is the fallback.
-- The share extension has no UI — taps Share → CrumbCoach → main
+- The share extension has no UI — taps Share → GeekBread → main
   app opens almost instantly. A toast/confirmation could go in if
   user testing finds the silent hand-off confusing.
 
@@ -2443,7 +2443,7 @@ Without 18.5a, the recipe-side number is misleadingly precise.
 Without 18.5b, the user has to remember their own kitchen's
 timing. With both, the active-bake card stops being a recipe
 read-out and becomes the user's running coach. That's the
-"crumbcoach" pitch.
+"geekbread" pitch.
 
 #### Risks and trade-offs
 
@@ -2558,7 +2558,7 @@ The combined effect on a ranged stage with kitchen learning:
 
 ## Phase C — Platform expansion (1.x → 2.0)
 
-iOS-ecosystem features that turn CrumbCoach from "an iPad app" into
+iOS-ecosystem features that turn GeekBread from "an iPad app" into
 "a baker's tool that lives across their devices".
 
 ### Stage 19 — iOS widgets
@@ -2581,12 +2581,12 @@ plumbing.
 
 **App Group wiring:**
 
-- New entitlement `group.com.monty.crumbcoach.shared` added to both
-  the main app's `Crumbcoach.entitlements` (via `project.yml`'s
+- New entitlement `group.com.monty.geekbread.shared` added to both
+  the main app's `GeekBread.entitlements` (via `project.yml`'s
   `entitlements.properties`) and a new
-  `CrumbcoachWidgets/CrumbcoachWidgets.entitlements`. Same group id
+  `GeekBreadWidgets/GeekBreadWidgets.entitlements`. Same group id
   on both sides is the contract.
-- `Crumbcoach/Shared/SharedContainer.swift` — helper that resolves
+- `GeekBread/Shared/SharedContainer.swift` — helper that resolves
   `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`
   and exposes `writeWidgetSnapshot(_:)` / `readWidgetSnapshot()`.
   Gracefully no-ops when the entitlement isn't reachable (running
@@ -2594,7 +2594,7 @@ plumbing.
 
 **Wire format:**
 
-- `Crumbcoach/Shared/WidgetSnapshot.swift` — `Codable` struct shared
+- `GeekBread/Shared/WidgetSnapshot.swift` — `Codable` struct shared
   between targets via `project.yml` source paths. Carries:
   - `generatedAt: Date` — staleness hint for widgets.
   - `activeBake: ActiveBakeSummary?` — nil when no bake; the
@@ -2616,7 +2616,7 @@ plumbing.
   done/non-skipped step), falls back to `bake.bakeOutAt` for the
   last stage or pre-Stage-8 bakes.
 
-**Widget views** (`CrumbcoachWidgets/ActiveBakeWidget.swift`):
+**Widget views** (`GeekBreadWidgets/ActiveBakeWidget.swift`):
 
 - `BakeProvider: TimelineProvider` — single-entry timeline with a
   15-minute safety refresh. The actual countdown is driven by
@@ -2637,7 +2637,7 @@ plumbing.
     next-action`.
 - Empty state per-family: small/medium/large show a flame icon +
   "No active bake — start one on the Scheduler"; rectangular shows
-  "CrumbCoach · No active bake"; inline shows
+  "GeekBread · No active bake"; inline shows
   `flame No active bake`.
 - `FoldRing` is a small `ZStack` of two stroked Circles + center
   text. Lives only in the widget file since the design-system
@@ -2656,7 +2656,7 @@ Known gaps deliberately left for later:
   when Stage 21 (Watch companion) lands and the complication has
   a tap target.
 - No "tap widget → deep-link into bake screen" yet. WidgetURL
-  + onOpenURL would route `crumbcoach://activeBake` to the
+  + onOpenURL would route `geekbread://activeBake` to the
   existing scene. Trivial to add; left for follow-up polish.
 - 15-minute timeline-refresh safety net is conservative. For
   bakes mostly waiting on long ferments this is fine; for the
@@ -2799,7 +2799,7 @@ months end-to-end, runs in parallel with everything else.
   reviewer audits a 20% random sample for inter-rater
   agreement. Target Cohen's kappa ≥ 0.7 on each label before
   promoting that label to a training target.
-- **Storage + versioning.** Datasets live in a `crumbcoach-
+- **Storage + versioning.** Datasets live in a `geekbread-
   datasets` repo separate from the app; labels in a checked-in
   JSON manifest so model training is reproducible. Images go
   to S3 or R2 with a public-read prefix only for the licensed
@@ -2809,7 +2809,7 @@ months end-to-end, runs in parallel with everything else.
 User-contributed images deserve a paragraph of their own:
 
 - Opt-in only, gated behind a Settings toggle ("Help improve
-  CrumbCoach's diagnosis" — off by default, off after every
+  GeekBread's diagnosis" — off by default, off after every
   major iOS update so the user re-consents).
 - Photo + the structured journal context (rating, recipe id,
   outcome words from the reflection) flow through a one-way
@@ -2893,10 +2893,10 @@ classification + a copy bank.
 #### Phase 24.3 — Core ML integration
 
 - **Export.** Train in PyTorch or Create ML → `.mlpackage` via
-  `coremltools.convert`. Bundle in `Crumbcoach.app/Contents/
+  `coremltools.convert`. Bundle in `GeekBread.app/Contents/
   Resources/CrumbDiagnosisModel.mlpackage`. The `.mlpackage`
   format ships compiled weights — load is fast (~100ms).
-- **Runtime wrapper.** New `Crumbcoach/Shared/CrumbDiagnosis.
+- **Runtime wrapper.** New `GeekBread/Shared/CrumbDiagnosis.
   swift` module wraps the model with the same async signature
   the rest of the app uses:
 
@@ -2945,7 +2945,7 @@ phase is mostly a swap, not a rewrite:
   is passed to the copy bank so the suggestion can reference
   the current bake's numbers.
 - **Honesty card.** Replaces today's "Apple Vision feature
-  prints" honesty card with the analog: "CrumbCoach's
+  prints" honesty card with the analog: "GeekBread's
   diagnosis runs on this iPad — your photo never leaves the
   device. Predictions are based on N labeled crumb photos
   collected over [time period]; treat them as a starting
@@ -3052,7 +3052,7 @@ bundled model. We stopped pretending to diagnose underproofing.
 
 What landed:
 
-- `Crumbcoach/Shared/VisionFeaturePrint.swift` — async wrapper
+- `GeekBread/Shared/VisionFeaturePrint.swift` — async wrapper
   around `VNGenerateImageFeaturePrintRequest`:
   - `compute(for: UIImage) async -> VNFeaturePrintObservation?` runs
     on a detached `.userInitiated` Task. Vision picks the Neural
@@ -3151,7 +3151,7 @@ the connect / subscribe / decode block.
 
 What landed:
 
-- **`Crumbcoach/Shared/SidekickManager.swift`** —
+- **`GeekBread/Shared/SidekickManager.swift`** —
   `CBCentralManagerDelegate`-backed singleton with a five-state
   `Phase` enum (`.idle`, `.warmingUp`, `.scanning`,
   `.discovered(name, identifier)`, `.notFound`, `.paired(...)`,
@@ -3222,13 +3222,13 @@ spec §4.1. Currently 9 originals + 4 linked recipes.
 
 Spotlight indexing of recipes, Handoff between devices,
 drag-and-drop photos into the editor / active bake. Small features
-individually; together they make CrumbCoach feel like a first-class
+individually; together they make GeekBread feel like a first-class
 iPad app.
 
 ### Stage 27 — completion notes
 
 All three sub-features landed. Each is independently shippable; they
-share a single `Crumbcoach/Shared/SpotlightIndex.swift` helper since
+share a single `GeekBread/Shared/SpotlightIndex.swift` helper since
 the same `NSUserActivity` payload drives Spotlight, Handoff, and the
 Stage 18 deep-link path.
 
@@ -3248,7 +3248,7 @@ Stage 18 deep-link path.
 - `AppState.saveSoon`'s debounced Task body re-indexes after every
   save — recipe rename, delete, or import flows through.
 - Tap from Spotlight delivers `CSSearchableItemActionType` as the
-  `NSUserActivity.activityType`. `CrumbcoachApp.onContinueUserActivity`
+  `NSUserActivity.activityType`. `GeekBreadApp.onContinueUserActivity`
   handles both that and the custom `viewing-recipe` activity (used
   by Handoff) through the same `SpotlightIndex.recipeId(from:)`
   extractor.
@@ -3256,18 +3256,18 @@ Stage 18 deep-link path.
 **Handoff:**
 
 - `SpotlightIndex.userActivity(for: recipe)` builds an
-  `NSUserActivity` with `activityType = "com.monty.crumbcoach.app.viewing-recipe"`,
+  `NSUserActivity` with `activityType = "com.monty.geekbread.app.viewing-recipe"`,
   the recipe id in `userInfo`, and the three eligibility flags
   (`isEligibleForHandoff` / `isEligibleForSearch` /
   `isEligibleForPrediction`). The `webpageURL` is the Stage 18
-  `crumbcoach://recipe/<id>` deep link so the same payload
+  `geekbread://recipe/<id>` deep link so the same payload
   resolves through every entry point.
 - `RecipeDetailScreen.body` declares the activity active while
   viewing a recipe via the SwiftUI `.userActivity(...)` modifier.
   The Handoff bubble appears on the user's iPhone / Mac when
   they're signed into the same iCloud account and the activity is
   current — tapping it on the other device fires
-  `onContinueUserActivity` in `CrumbcoachApp` and routes through
+  `onContinueUserActivity` in `GeekBreadApp` and routes through
   `SpotlightIndex.recipeId(from:)` to `state.openRecipe`.
 
 **Drag-and-drop photos:**
@@ -3288,11 +3288,11 @@ Stage 18 deep-link path.
 **Project hygiene:**
 
 - `project.yml` gained a `schemes:` block that declares the
-  `Crumbcoach` scheme so `xcodegen generate` produces the shared
+  `GeekBread` scheme so `xcodegen generate` produces the shared
   scheme instead of relying on Xcode to auto-create one. Without
   this, every `xcodegen generate` wiped the scheme and
-  `xcodebuild -scheme Crumbcoach` started failing. Status table
-  references to "scheme Crumbcoach" now survive re-generation.
+  `xcodebuild -scheme GeekBread` started failing. Status table
+  references to "scheme GeekBread" now survive re-generation.
 
 Known gaps deliberately left for later:
 
@@ -3415,7 +3415,7 @@ visibility.)
   `.fat`.~~ Closed: parenthesized the melted-butter clause and
   pulled `oil` out of the liquid chain entirely; oil is always a
   fat in bread math.
-  ([RecipeImporter.swift](Crumbcoach/Shared/RecipeImporter.swift))
+  ([RecipeImporter.swift](GeekBread/Shared/RecipeImporter.swift))
 - [x] ~~`cloudSyncEnabled` round-trips through the cloud JSON~~
   Closed: `AppState.reload(from:)` no longer copies
   `loaded.cloudSyncEnabled` — the flag is device-local opt-in,

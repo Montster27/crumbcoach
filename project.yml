@@ -1,27 +1,27 @@
-name: Crumbcoach
+name: GeekBread
 options:
-  bundleIdPrefix: com.crumbcoach
+  bundleIdPrefix: com.geekbread
   deploymentTarget:
     iOS: "17.0"
   developmentLanguage: en
   createIntermediateGroups: true
   generateEmptyDirectories: true
-  # Stage 27 — make sure xcodegen produces a shared scheme named Crumbcoach
-  # so `xcodebuild -scheme Crumbcoach` keeps working after re-generation.
+  # Stage 27 — make sure xcodegen produces a shared scheme named GeekBread
+  # so `xcodebuild -scheme GeekBread` keeps working after re-generation.
   # Without this xcodegen only emits the test scheme and Xcode auto-creates
   # the others, which don't survive `xcodegen generate`.
 schemes:
-  Crumbcoach:
+  GeekBread:
     build:
       targets:
-        Crumbcoach: all
-        CrumbcoachWidgets: all
-        CrumbcoachShareExtension: all
-        CrumbcoachTests: [test]
+        GeekBread: all
+        GeekBreadWidgets: all
+        GeekBreadShareExtension: all
+        GeekBreadTests: [test]
     test:
       gatherCoverageData: true
       targets:
-        - CrumbcoachTests
+        - GeekBreadTests
     run:
       config: Debug
     archive:
@@ -30,36 +30,42 @@ settings:
   base:
     SWIFT_VERSION: "5.10"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
-    TARGETED_DEVICE_FAMILY: "2"
-    SUPPORTS_MACCATALYST: NO
+    TARGETED_DEVICE_FAMILY: "1,2"
+    SUPPORTS_MACCATALYST: YES
     SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
     ENABLE_PREVIEWS: YES
     # Monty's personal-team signing identity. A fork to another team
-    # changes this + the four `com.monty.crumbcoach.app[.*]` bundle ids
-    # below + the `iCloud.com.monty.crumbcoach.app` container references.
+    # changes this + the four `com.monty.geekbread.app[.*]` bundle ids
+    # below + the `iCloud.com.monty.geekbread.app` container references.
     DEVELOPMENT_TEAM: 9C4LVC9DR6
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "0.1.1"
     CURRENT_PROJECT_VERSION: "1"
 targets:
-  Crumbcoach:
+  GeekBread:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - path: Crumbcoach
+      - path: GeekBread
     resources:
-      - path: Crumbcoach/Resources/Assets.xcassets
+      - path: GeekBread/Resources/Assets.xcassets
     dependencies:
-      - target: CrumbcoachWidgets
+      - target: GeekBreadWidgets
         embed: true
-      - target: CrumbcoachShareExtension
+      - target: GeekBreadShareExtension
         embed: true
     info:
-      path: Crumbcoach/Info.plist
+      path: GeekBread/Info.plist
       properties:
-        CFBundleDisplayName: CrumbCoach
+        CFBundleDisplayName: GeekBread
         CFBundleShortVersionString: "0.1.0"
+        # Skips the App Store Connect "App Encryption Documentation" prompt
+        # on every upload. GeekBread only uses Apple-provided standard
+        # encryption (HTTPS, system frameworks), which is exempt under
+        # US export rules. Flip to true and add ITSEncryptionExportComplianceCode
+        # the day we ship proprietary crypto.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: ""
           UIImageName: ""
@@ -67,16 +73,22 @@ targets:
         # Manager). The layout was designed for a single 1440×1024 canvas;
         # supporting arbitrary side-by-side widths is real work. With
         # UIRequiresFullScreen = true, restricting to landscape orientations
-        # is allowed.
+        # is allowed. iPhone is portrait-only (separate UI tree under
+        # iPhoneShell — see GeekBreadApp.swift); the ~ipad variant keeps
+        # iPad landscape-locked.
         UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIDeviceFamily:
+          - 1
           - 2
         UIRequiredDeviceCapabilities:
           - arm64
-        NSCameraUsageDescription: "Photograph your crumb, dough, and starter so CrumbCoach can analyze and log them."
+        NSCameraUsageDescription: "Photograph your crumb, dough, and starter so GeekBread can analyze and log them."
         NSPhotoLibraryUsageDescription: "Attach photos from your library to bakes and diagnostics."
         NSUserNotificationsUsageDescription: "Remind you when each bake step is due — folds, shaping, baking."
         # Stage 25 — Sourdough Sidekick scaffolding. CoreBluetooth scan is
@@ -85,39 +97,39 @@ targets:
         NSBluetoothAlwaysUsageDescription: "Connect to a Sourdough Sidekick over Bluetooth to read starter temperature and rise data."
         # Stage 16 — required for `Activity<>.request()` to succeed.
         NSSupportsLiveActivities: true
-        # Stage 18 — `crumbcoach://` URL scheme for deep-link sharing and
+        # Stage 18 — `geekbread://` URL scheme for deep-link sharing and
         # the share-extension hand-off.
         CFBundleURLTypes:
-          - CFBundleURLName: com.crumbcoach.app
+          - CFBundleURLName: com.geekbread.app
             CFBundleURLSchemes:
-              - crumbcoach
+              - geekbread
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.monty.crumbcoach.app
-        TARGETED_DEVICE_FAMILY: "2"
+        PRODUCT_BUNDLE_IDENTIFIER: com.monty.geekbread.app
+        TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        CODE_SIGN_ENTITLEMENTS: Crumbcoach/Crumbcoach.entitlements
+        CODE_SIGN_ENTITLEMENTS: GeekBread/GeekBread.entitlements
     # Stage 15 — iCloud Drive sync via the ubiquity Documents container.
     # The signing team must enable iCloud (Documents) on the App ID in
     # Apple Developer + provision the matching container. CloudSyncManager
     # gracefully no-ops at runtime if the container isn't reachable (no
     # team / not signed in).
     entitlements:
-      path: Crumbcoach/Crumbcoach.entitlements
+      path: GeekBread/GeekBread.entitlements
       properties:
         com.apple.developer.icloud-container-identifiers:
-          - iCloud.com.monty.crumbcoach.app
+          - iCloud.com.monty.geekbread.app
         com.apple.developer.icloud-services:
           - CloudDocuments
         com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.com.monty.crumbcoach.app
+          - iCloud.com.monty.geekbread.app
         # Stage 19 — App Group shared between the main app and the widget
         # extension so widgets can read the active-bake snapshot the main
         # app writes on every `activeBake` mutation.
         com.apple.security.application-groups:
-          - group.com.monty.crumbcoach.shared
-  CrumbcoachWidgets:
+          - group.com.monty.geekbread.shared
+  GeekBreadWidgets:
     # Stage 16 — Live Activity. Stage 19 — Home Screen + Lock Screen
     # widgets reading from the App Group snapshot. ActiveBakeAttributes
     # and WidgetSnapshot are shared with the main app via the `sources`
@@ -126,44 +138,44 @@ targets:
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - path: CrumbcoachWidgets
-      - path: Crumbcoach/Shared/ActiveBakeAttributes.swift
-      - path: Crumbcoach/Shared/WidgetSnapshot.swift
-      - path: Crumbcoach/Shared/SharedContainer.swift
+      - path: GeekBreadWidgets
+      - path: GeekBread/Shared/ActiveBakeAttributes.swift
+      - path: GeekBread/Shared/WidgetSnapshot.swift
+      - path: GeekBread/Shared/SharedContainer.swift
     info:
-      path: CrumbcoachWidgets/Info.plist
+      path: GeekBreadWidgets/Info.plist
       properties:
-        CFBundleDisplayName: CrumbCoach Widgets
+        CFBundleDisplayName: GeekBread Widgets
         CFBundleShortVersionString: "0.1.0"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
-      path: CrumbcoachWidgets/CrumbcoachWidgets.entitlements
+      path: GeekBreadWidgets/GeekBreadWidgets.entitlements
       properties:
         # Same App Group as the main app — widgets read the snapshot the
         # main app writes here.
         com.apple.security.application-groups:
-          - group.com.monty.crumbcoach.shared
+          - group.com.monty.geekbread.shared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.monty.crumbcoach.app.widgets
-        TARGETED_DEVICE_FAMILY: "2"
+        PRODUCT_BUNDLE_IDENTIFIER: com.monty.geekbread.app.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: NO
-        CODE_SIGN_ENTITLEMENTS: CrumbcoachWidgets/CrumbcoachWidgets.entitlements
-  CrumbcoachShareExtension:
-    # Stage 18 — Safari share → CrumbCoach. Reads the shared URL, encodes
-    # it as `crumbcoach://import?url=…`, and opens the main app via the
+        CODE_SIGN_ENTITLEMENTS: GeekBreadWidgets/GeekBreadWidgets.entitlements
+  GeekBreadShareExtension:
+    # Stage 18 — Safari share → GeekBread. Reads the shared URL, encodes
+    # it as `geekbread://import?url=…`, and opens the main app via the
     # responder-chain `openURL:` hand-off. No persistent UI.
     type: app-extension
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - path: CrumbcoachShareExtension
+      - path: GeekBreadShareExtension
     info:
-      path: CrumbcoachShareExtension/Info.plist
+      path: GeekBreadShareExtension/Info.plist
       properties:
-        CFBundleDisplayName: CrumbCoach
+        CFBundleDisplayName: GeekBread
         CFBundleShortVersionString: "0.1.0"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
@@ -174,24 +186,24 @@ targets:
               NSExtensionActivationSupportsText: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.monty.crumbcoach.app.share
-        TARGETED_DEVICE_FAMILY: "2"
+        PRODUCT_BUNDLE_IDENTIFIER: com.monty.geekbread.app.share
+        TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: NO
-  CrumbcoachTests:
+  GeekBreadTests:
     type: bundle.unit-test
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - path: CrumbcoachTests
+      - path: GeekBreadTests
     dependencies:
-      - target: Crumbcoach
+      - target: GeekBread
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.monty.crumbcoach.app.tests
-        TARGETED_DEVICE_FAMILY: "2"
+        PRODUCT_BUNDLE_IDENTIFIER: com.monty.geekbread.app.tests
+        TARGETED_DEVICE_FAMILY: "1,2"
         BUNDLE_LOADER: "$(TEST_HOST)"
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Crumbcoach.app/Crumbcoach"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/GeekBread.app/GeekBread"
         # Without this, xcodebuild test refuses to sign the test bundle.
         # No custom Info.plist is needed for unit tests — Xcode generates
         # one with the right bundle id at build time.
