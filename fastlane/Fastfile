@@ -1,0 +1,78 @@
+default_platform(:ios)
+
+# Resolve paths relative to the repo root (fastlane runs from ./fastlane).
+WORKSPACE_ROOT = File.expand_path("..", __dir__)
+PROJECT_YML    = File.join(WORKSPACE_ROOT, "project.yml")
+XCODEPROJ      = File.join(WORKSPACE_ROOT, "GeekBread.xcodeproj")
+SCHEME         = "GeekBread"
+
+# Sim device used by the `test` lane. macos-14 GitHub runners ship recent
+# Xcodes that include this device; bump as Xcode versions move.
+SIM_DEVICE = "iPhone 15"
+
+platform :ios do
+  before_all do
+    # The .xcodeproj is generated from project.yml by xcodegen. Re-run on
+    # every lane so the build always matches what's committed in YAML —
+    # otherwise a stale pbxproj can mask config drift.
+    Dir.chdir(WORKSPACE_ROOT) { sh("xcodegen", "generate") }
+  end
+
+  desc "Run the GeekBreadTests bundle on the iOS Simulator"
+  lane :test do
+    run_tests(
+      project: XCODEPROJ,
+      scheme: SCHEME,
+      device: SIM_DEVICE,
+      clean: true,
+      result_bundle: true
+    )
+  end
+
+  desc "Sanity-build the iOS Simulator app — no signing, no upload"
+  lane :build_unsigned do
+    Dir.chdir(WORKSPACE_ROOT) do
+      sh(
+        "set -o pipefail && xcodebuild build " \
+        "-project #{XCODEPROJ.shellescape} " \
+        "-scheme #{SCHEME.shellescape} " \
+        "-destination 'generic/platform=iOS Simulator' " \
+        "CODE_SIGNING_ALLOWED=NO"
+      )
+    end
+  end
+
+  # === Phase 2 — uncomment once the App Store Connect API key and match
+  # certs repo are set up. Driven by a `v*` git tag (e.g. `v0.1.2`).
+  #
+  # desc "Build & upload to TestFlight (driven by git tag vX.Y.Z)"
+  # lane :beta do
+  #   tag = ENV["GITHUB_REF_NAME"] || `git describe --tags --abbrev=0`.strip
+  #   version = tag.sub(/^v/, "")
+  #   UI.user_error!("Tag '#{tag}' is not vX.Y.Z") unless version =~ /\A\d+\.\d+\.\d+\z/
+  #   build = ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
+  #
+  #   # Project regeneration already happened in `before_all`; now overwrite
+  #   # the two version build settings in the freshly generated pbxproj.
+  #   increment_version_number_in_xcodeproj(version_number: version,    xcodeproj: XCODEPROJ)
+  #   increment_build_number_in_xcodeproj(build_number: build.to_s,     xcodeproj: XCODEPROJ)
+  #
+  #   app_store_connect_api_key(
+  #     key_id:      ENV.fetch("ASC_KEY_ID"),
+  #     issuer_id:   ENV.fetch("ASC_ISSUER_ID"),
+  #     key_content: ENV.fetch("ASC_KEY_P8_BASE64"),
+  #     is_key_content_base64: true
+  #   )
+  #
+  #   match(type: "appstore", readonly: is_ci)
+  #
+  #   build_app(
+  #     project: XCODEPROJ,
+  #     scheme: SCHEME,
+  #     export_method: "app-store",
+  #     clean: true
+  #   )
+  #
+  #   upload_to_testflight(skip_waiting_for_build_processing: true)
+  # end
+end

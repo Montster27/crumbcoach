@@ -27,6 +27,17 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+fastlane/test_output/**
+fastlane/README.md
+fastlane/.env*
+fastlane/*.p8
+fastlane/AuthKey*.json
+*.result
+*.xcresult
+
+## Bundler
+vendor/bundle/
+.bundle/
 
 ## IDE
 .idea/

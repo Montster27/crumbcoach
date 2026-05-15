@@ -1,0 +1,7 @@
+app_identifier("com.monty.geekbread.app")
+team_id("9C4LVC9DR6")
+
+# Apple ID is per-developer — set FASTLANE_APPLE_ID locally (or in CI).
+# Not required for Phase 1 lanes (test / build_unsigned); used by Phase 2
+# beta lane when uploading to TestFlight.
+apple_id(ENV["FASTLANE_APPLE_ID"]) if ENV["FASTLANE_APPLE_ID"]
